@@ -1,0 +1,46 @@
+// firestore.rules
+// Pega estas reglas en Firebase Console → Firestore → Reglas
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Funciones helper ──
+    function estaAutenticado() {
+      return request.auth != null;
+    }
+    function miPerfil() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    }
+    function esAdmin() {
+      return estaAutenticado() && miPerfil().rol == 'admin';
+    }
+    function esRRHH() {
+      return estaAutenticado() && (miPerfil().rol == 'admin' || miPerfil().rol == 'rrhh');
+    }
+
+    // ── Usuarios: cada uno ve el suyo; admins ven todos ──
+    match /usuarios/{userId} {
+      allow read:   if estaAutenticado() && (request.auth.uid == userId || esRRHH());
+      allow create: if esAdmin();
+      allow update: if estaAutenticado() && (request.auth.uid == userId || esAdmin());
+      allow delete: if esAdmin();
+    }
+
+    // ── Empresas: solo admins gestionan; rrhh puede leer ──
+    match /empresas/{empresaId} {
+      allow read:   if esRRHH();
+      allow write:  if esAdmin();
+    }
+
+    // ── Fichajes: empleado crea los suyos; admins/rrhh leen todos ──
+    match /fichajes/{fichajeId} {
+      allow read:   if esRRHH() ||
+                       (estaAutenticado() && resource.data.usuarioId == request.auth.uid);
+      allow create: if estaAutenticado() &&
+                       request.resource.data.usuarioId == request.auth.uid;
+      allow update: if esAdmin();
+      allow delete: if esAdmin();
+    }
+  }
+}

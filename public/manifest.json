@@ -1,0 +1,24 @@
+{
+  "short_name": "FichajeNet",
+  "name": "FichajeNet · Registro de Jornada",
+  "description": "Sistema de fichaje digital obligatorio RDL 8/2019",
+  "start_url": "/fichar",
+  "display": "standalone",
+  "theme_color": "#1B3A6B",
+  "background_color": "#1B3A6B",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ]
+}
