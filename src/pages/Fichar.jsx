@@ -1,5 +1,5 @@
 // src/pages/Fichar.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   collection, addDoc, query, where, getDocs,
   orderBy, Timestamp, doc, getDoc
@@ -13,10 +13,11 @@ import { es } from "date-fns/locale";
 export default function Fichar() {
   const { user, perfil } = useAuth();
   const { showToast, ToastUI } = useToast();
-  const [hora, setHora]           = useState(new Date());
+  const [hora, setHora]             = useState(new Date());
   const [registrosHoy, setRegistros] = useState([]);
-  const [cargando, setCargando]   = useState(false);
-  const [empresa, setEmpresa]     = useState(null);
+  const [cargando, setCargando]     = useState(false);
+  const [empresa, setEmpresa]       = useState(null);
+  const [iniciado, setIniciado]     = useState(false);
 
   // Reloj en tiempo real
   useEffect(() => {
@@ -24,47 +25,63 @@ export default function Fichar() {
     return () => clearInterval(t);
   }, []);
 
-  // Cargar empresa y registros de hoy
-  useEffect(() => {
-    if (!perfil) return;
-    cargarEmpresa();
-    cargarRegistrosHoy();
+  const cargarEmpresa = useCallback(async () => {
+    if (!perfil?.empresaId) return;
+    try {
+      const snap = await getDoc(doc(db, "empresas", perfil.empresaId));
+      if (snap.exists()) setEmpresa(snap.data());
+    } catch (e) {
+      console.error("Error cargando empresa:", e);
+    }
   }, [perfil]);
 
-  const cargarEmpresa = async () => {
-    if (!perfil?.empresaId) return;
-    const snap = await getDoc(doc(db, "empresas", perfil.empresaId));
-    if (snap.exists()) setEmpresa(snap.data());
-  };
-
-  const cargarRegistrosHoy = async () => {
+  const cargarRegistrosHoy = useCallback(async () => {
     if (!user) return;
-    const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
-    const q = query(
-      collection(db, "fichajes"),
-      where("usuarioId", "==", user.uid),
-      where("timestamp", ">=", Timestamp.fromDate(hoy)),
-      orderBy("timestamp", "asc")
-    );
-    const snap = await getDocs(q);
-    setRegistros(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-  };
+    try {
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+      const manana = new Date(hoy);
+      manana.setDate(manana.getDate() + 1);
+
+      const q = query(
+        collection(db, "fichajes"),
+        where("usuarioId", "==", user.uid),
+        where("timestamp", ">=", Timestamp.fromDate(hoy)),
+        where("timestamp", "<",  Timestamp.fromDate(manana)),
+        orderBy("timestamp", "asc")
+      );
+      const snap = await getDocs(q);
+      const lista = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setRegistros(lista);
+    } catch (e) {
+      console.error("Error cargando registros:", e);
+    }
+  }, [user]);
+
+  // Cargar datos al montar y cuando cambie el perfil
+  useEffect(() => {
+    if (perfil && user && !iniciado) {
+      setIniciado(true);
+      cargarEmpresa();
+      cargarRegistrosHoy();
+    }
+  }, [perfil, user, iniciado, cargarEmpresa, cargarRegistrosHoy]);
 
   const registrar = async (tipo) => {
+    if (cargando) return;
     setCargando(true);
     try {
       const ahora = new Date();
       await addDoc(collection(db, "fichajes"), {
-        usuarioId:   user.uid,
-        nombre:      perfil.nombre,
-        empresaId:   perfil.empresaId,
+        usuarioId:     user.uid,
+        nombre:        perfil.nombre,
+        empresaId:     perfil.empresaId,
         empresaNombre: empresa?.nombre || "",
-        tipo:        tipo,
-        timestamp:   Timestamp.fromDate(ahora),
-        fecha:       format(ahora, "dd/MM/yyyy"),
-        hora:        format(ahora, "HH:mm:ss"),
-        ip:          "web"
+        tipo:          tipo,
+        timestamp:     Timestamp.fromDate(ahora),
+        fecha:         format(ahora, "dd/MM/yyyy"),
+        hora:          format(ahora, "HH:mm:ss"),
+        ip:            "web"
       });
       showToast(
         tipo === "entrada"
@@ -72,8 +89,10 @@ export default function Fichar() {
           : `✓ Salida registrada a las ${format(ahora, "HH:mm")}`,
         "success"
       );
-      cargarRegistrosHoy();
+      // Recargar registros inmediatamente después de guardar
+      await cargarRegistrosHoy();
     } catch (err) {
+      console.error("Error registrando fichaje:", err);
       showToast("Error al registrar. Inténtalo de nuevo.", "error");
     }
     setCargando(false);
@@ -82,6 +101,7 @@ export default function Fichar() {
   const iniciales = (nombre) =>
     (nombre || "?").split(" ").slice(0, 2).map(p => p[0]).join("").toUpperCase();
 
+  // El último registro determina qué botón mostrar
   const ultimoTipo = registrosHoy.length
     ? registrosHoy[registrosHoy.length - 1].tipo
     : null;
@@ -93,14 +113,16 @@ export default function Fichar() {
 
         <div className="avatar-emp">{iniciales(perfil?.nombre)}</div>
         <div className="emp-nombre">{perfil?.nombre}</div>
-        <div className="emp-empresa">{empresa?.nombre || "Cargando empresa..."}</div>
+        <div className="emp-empresa">
+          {empresa ? empresa.nombre : perfil?.empresaId ? "Cargando..." : "Sin empresa asignada"}
+        </div>
 
         <div className="reloj-grande">{format(hora, "HH:mm:ss")}</div>
         <div className="fecha-txt">
           {format(hora, "EEEE, d 'de' MMMM 'de' yyyy", { locale: es })}
         </div>
 
-        {/* Botones fichaje */}
+        {/* Botón entrada: si no hay registros o el último fue salida */}
         {ultimoTipo !== "entrada" && (
           <button
             className="btn btn-green btn-lg"
@@ -108,9 +130,11 @@ export default function Fichar() {
             onClick={() => registrar("entrada")}
             disabled={cargando}
           >
-            ⬇ Registrar ENTRADA
+            {cargando ? "Registrando..." : "⬇ Registrar ENTRADA"}
           </button>
         )}
+
+        {/* Botón salida: solo si el último registro fue entrada */}
         {ultimoTipo === "entrada" && (
           <button
             className="btn btn-red btn-lg"
@@ -118,7 +142,7 @@ export default function Fichar() {
             onClick={() => registrar("salida")}
             disabled={cargando}
           >
-            ⬆ Registrar SALIDA
+            {cargando ? "Registrando..." : "⬆ Registrar SALIDA"}
           </button>
         )}
 
