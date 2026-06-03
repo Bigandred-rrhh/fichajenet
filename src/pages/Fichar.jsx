@@ -10,34 +10,72 @@ import { useToast } from "../hooks/useToast";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
+// Calcula horas trabajadas entre pares entrada/salida
+function calcularHoras(registros) {
+  let totalMinutos = 0;
+  const lista = [...registros];
+  for (let i = 0; i < lista.length - 1; i++) {
+    if (lista[i].tipo === "entrada" && lista[i+1].tipo === "salida") {
+      const entrada = lista[i].timestamp?.toDate?.() || new Date();
+      const salida  = lista[i+1].timestamp?.toDate?.() || new Date();
+      totalMinutos += Math.round((salida - entrada) / 60000);
+      i++; // saltar la salida ya procesada
+    }
+  }
+  if (totalMinutos <= 0) return null;
+  const h = Math.floor(totalMinutos / 60);
+  const m = totalMinutos % 60;
+  return `${h}h ${String(m).padStart(2,"0")}m`;
+}
+
 export default function Fichar() {
   const { user, perfil, logout } = useAuth();
   const { showToast, ToastUI } = useToast();
-  const [hora, setHora]              = useState(new Date());
-  const [registrosHoy, setRegistros] = useState([]);
-  const [cargando, setCargando]      = useState(false);
-  const [empresa, setEmpresa]        = useState(null);
-  const [iniciado, setIniciado]      = useState(false);
+  const [hora, setHora]               = useState(new Date());
+  const [registrosHoy, setRegistros]  = useState([]);
+  const [cargando, setCargando]       = useState(false);
+  const [empresa, setEmpresa]         = useState(null);
+  const [iniciado, setIniciado]       = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [tiempoVivo, setTiempoVivo]   = useState(null);
 
   useEffect(() => {
     const t = setInterval(() => setHora(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 
+  // Contador en vivo mientras está trabajando
+  useEffect(() => {
+    const ultimoTipo = registrosHoy.length
+      ? registrosHoy[registrosHoy.length - 1].tipo : null;
+    if (ultimoTipo !== "entrada") { setTiempoVivo(null); return; }
+    const ultimaEntrada = registrosHoy[registrosHoy.length - 1].timestamp?.toDate?.();
+    if (!ultimaEntrada) return;
+    const t = setInterval(() => {
+      const mins = Math.round((new Date() - ultimaEntrada) / 60000);
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      setTiempoVivo(`${h}h ${String(m).padStart(2,"0")}m`);
+    }, 10000); // cada 10 segundos
+    // calcular inmediatamente
+    const mins = Math.round((new Date() - ultimaEntrada) / 60000);
+    setTiempoVivo(`${Math.floor(mins/60)}h ${String(mins%60).padStart(2,"0")}m`);
+    return () => clearInterval(t);
+  }, [registrosHoy]);
+
   const cargarEmpresa = useCallback(async () => {
     if (!perfil?.empresaId) return;
     try {
       const snap = await getDoc(doc(db, "empresas", perfil.empresaId));
       if (snap.exists()) setEmpresa(snap.data());
-    } catch (e) { console.error(e); }
+    } catch(e) { console.error(e); }
   }, [perfil]);
 
   const cargarRegistrosHoy = useCallback(async () => {
     if (!user) return;
     try {
       const hoy = new Date(); hoy.setHours(0,0,0,0);
-      const manana = new Date(hoy); manana.setDate(manana.getDate() + 1);
+      const manana = new Date(hoy); manana.setDate(manana.getDate()+1);
       const q = query(
         collection(db, "fichajes"),
         where("usuarioId", "==", user.uid),
@@ -46,8 +84,8 @@ export default function Fichar() {
         orderBy("timestamp", "asc")
       );
       const snap = await getDocs(q);
-      setRegistros(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (e) { console.error(e); }
+      setRegistros(snap.docs.map(d => ({ id:d.id, ...d.data() })));
+    } catch(e) { console.error(e); }
   }, [user]);
 
   useEffect(() => {
@@ -63,6 +101,30 @@ export default function Fichar() {
     setCargando(true);
     try {
       const ahora = new Date();
+      // Calcular horas acumuladas del día al fichar salida
+      let horasDia = null;
+      if (tipo === "salida" && registrosHoy.length > 0) {
+        const ultima = registrosHoy[registrosHoy.length-1].timestamp?.toDate?.();
+        if (ultima) {
+          const mins = Math.round((ahora - ultima) / 60000);
+          // sumar a horas ya acumuladas
+          let totalMins = 0;
+          const lista = [...registrosHoy];
+          for (let i = 0; i < lista.length-1; i++) {
+            if (lista[i].tipo==="entrada" && lista[i+1].tipo==="salida") {
+              const e = lista[i].timestamp?.toDate?.();
+              const s = lista[i+1].timestamp?.toDate?.();
+              if (e && s) totalMins += Math.round((s-e)/60000);
+              i++;
+            }
+          }
+          totalMins += mins; // añadir el tramo actual
+          const h = Math.floor(totalMins/60);
+          const m = totalMins%60;
+          horasDia = `${h}h ${String(m).padStart(2,"0")}m`;
+        }
+      }
+
       await addDoc(collection(db, "fichajes"), {
         usuarioId:     user.uid,
         nombre:        perfil.nombre,
@@ -72,16 +134,17 @@ export default function Fichar() {
         timestamp:     Timestamp.fromDate(ahora),
         fecha:         format(ahora, "dd/MM/yyyy"),
         hora:          format(ahora, "HH:mm:ss"),
+        horasDia:      horasDia, // solo se guarda en el registro de salida
         ip:            "web"
       });
-      showToast(
-        tipo === "entrada"
-          ? `✓ Entrada registrada a las ${format(ahora, "HH:mm")}`
-          : `✓ Salida registrada a las ${format(ahora, "HH:mm")}`,
-        "success"
-      );
+
+      if (tipo === "salida" && horasDia) {
+        showToast(`✓ Salida registrada — Total hoy: ${horasDia}`, "success");
+      } else {
+        showToast(`✓ Entrada registrada a las ${format(ahora, "HH:mm")}`, "success");
+      }
       await cargarRegistrosHoy();
-    } catch (err) {
+    } catch(err) {
       console.error(err);
       showToast("Error al registrar. Inténtalo de nuevo.", "error");
     }
@@ -89,38 +152,36 @@ export default function Fichar() {
   };
 
   const handleLogout = async () => {
-    if (confirmLogout) {
-      await logout();
-    } else {
+    if (confirmLogout) { await logout(); }
+    else {
       setConfirmLogout(true);
       setTimeout(() => setConfirmLogout(false), 4000);
     }
   };
 
   const iniciales = (nombre) =>
-    (nombre || "?").split(" ").slice(0,2).map(p => p[0]).join("").toUpperCase();
+    (nombre||"?").split(" ").slice(0,2).map(p=>p[0]).join("").toUpperCase();
 
   const ultimoTipo = registrosHoy.length
-    ? registrosHoy[registrosHoy.length - 1].tipo
-    : null;
+    ? registrosHoy[registrosHoy.length-1].tipo : null;
+
+  const totalHoyFinalizado = calcularHoras(registrosHoy);
 
   return (
     <div className="fichar-wrap">
       {ToastUI}
       <div className="card" style={{ textAlign:"center", padding:"28px 24px" }}>
 
-        {/* Botón cerrar sesión arriba a la derecha */}
+        {/* Cerrar sesión */}
         <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:8 }}>
-          <button
-            onClick={handleLogout}
-            style={{
-              border: confirmLogout ? "1px solid #C0392B" : "1px solid #E5E7EB",
-              background: confirmLogout ? "#FDECEA" : "transparent",
-              color: confirmLogout ? "#C0392B" : "#9CA3AF",
-              borderRadius: 8, padding:"6px 12px",
-              fontSize: 13, cursor:"pointer", transition:"all .2s",
-              fontWeight: confirmLogout ? 600 : 400
-            }}>
+          <button onClick={handleLogout} style={{
+            border: confirmLogout ? "1px solid #C0392B" : "1px solid #E5E7EB",
+            background: confirmLogout ? "#FDECEA" : "transparent",
+            color: confirmLogout ? "#C0392B" : "#9CA3AF",
+            borderRadius:8, padding:"6px 12px", fontSize:13,
+            cursor:"pointer", transition:"all .2s",
+            fontWeight: confirmLogout ? 600 : 400
+          }}>
             {confirmLogout ? "¿Seguro? Pulsa de nuevo" : "Cerrar sesión"}
           </button>
         </div>
@@ -128,7 +189,7 @@ export default function Fichar() {
         <div className="avatar-emp">{iniciales(perfil?.nombre)}</div>
         <div className="emp-nombre">{perfil?.nombre}</div>
         <div className="emp-empresa">
-          {empresa ? empresa.nombre : perfil?.empresaId ? "Cargando..." : "Sin empresa asignada"}
+          {empresa ? empresa.nombre : perfil?.empresaId ? "Cargando..." : "Sin empresa"}
         </div>
 
         <div className="reloj-grande">{format(hora, "HH:mm:ss")}</div>
@@ -136,28 +197,45 @@ export default function Fichar() {
           {format(hora, "EEEE, d 'de' MMMM 'de' yyyy", { locale: es })}
         </div>
 
+        {/* Contador en vivo si está trabajando */}
+        {ultimoTipo === "entrada" && tiempoVivo && (
+          <div style={{
+            background:"#EBF2FB", borderRadius:10, padding:"10px 16px",
+            marginBottom:16, display:"inline-block"
+          }}>
+            <span style={{ fontSize:12, color:"#2E5FA3", fontWeight:500 }}>
+              ⏱ Tiempo trabajado hoy: <strong>{tiempoVivo}</strong>
+            </span>
+          </div>
+        )}
+
+        {/* Total finalizado si ya fichó salida */}
+        {ultimoTipo === "salida" && totalHoyFinalizado && (
+          <div style={{
+            background:"#E1F5EE", borderRadius:10, padding:"10px 16px",
+            marginBottom:16, display:"inline-block"
+          }}>
+            <span style={{ fontSize:12, color:"#0F6E56", fontWeight:500 }}>
+              ✓ Total hoy: <strong>{totalHoyFinalizado}</strong>
+            </span>
+          </div>
+        )}
+
+        {/* Botones fichaje */}
         {ultimoTipo !== "entrada" && (
-          <button
-            className="btn btn-green btn-lg"
-            style={{ marginBottom:12 }}
-            onClick={() => registrar("entrada")}
-            disabled={cargando}
-          >
+          <button className="btn btn-green btn-lg" style={{ marginBottom:12 }}
+            onClick={() => registrar("entrada")} disabled={cargando}>
             {cargando ? "Registrando..." : "⬇ Registrar ENTRADA"}
           </button>
         )}
-
         {ultimoTipo === "entrada" && (
-          <button
-            className="btn btn-red btn-lg"
-            style={{ marginBottom:12 }}
-            onClick={() => registrar("salida")}
-            disabled={cargando}
-          >
+          <button className="btn btn-red btn-lg" style={{ marginBottom:12 }}
+            onClick={() => registrar("salida")} disabled={cargando}>
             {cargando ? "Registrando..." : "⬆ Registrar SALIDA"}
           </button>
         )}
 
+        {/* Historial hoy */}
         <div style={{ marginTop:24, textAlign:"left" }}>
           <p style={{ fontSize:12, fontWeight:600, color:"#6B7280", marginBottom:10 }}>
             REGISTROS DE HOY
@@ -172,10 +250,17 @@ export default function Fichar() {
                 display:"flex", justifyContent:"space-between", alignItems:"center",
                 padding:"10px 0", borderBottom:"1px solid #F3F4F6", fontSize:14
               }}>
-                <span className={`badge ${r.tipo==="entrada" ? "badge-green" : "badge-red"}`}>
+                <span className={`badge ${r.tipo==="entrada"?"badge-green":"badge-red"}`}>
                   {r.tipo === "entrada" ? "⬇ Entrada" : "⬆ Salida"}
                 </span>
-                <span style={{ fontWeight:600 }}>{r.hora}</span>
+                <div style={{ display:"flex", gap:12, alignItems:"center" }}>
+                  {r.horasDia && (
+                    <span style={{ fontSize:12, color:"#0F6E56", fontWeight:500 }}>
+                      {r.horasDia}
+                    </span>
+                  )}
+                  <span style={{ fontWeight:600 }}>{r.hora}</span>
+                </div>
               </div>
             ))
           )}
