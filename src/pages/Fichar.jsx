@@ -11,15 +11,15 @@ import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
 export default function Fichar() {
-  const { user, perfil } = useAuth();
+  const { user, perfil, logout } = useAuth();
   const { showToast, ToastUI } = useToast();
-  const [hora, setHora]             = useState(new Date());
+  const [hora, setHora]              = useState(new Date());
   const [registrosHoy, setRegistros] = useState([]);
-  const [cargando, setCargando]     = useState(false);
-  const [empresa, setEmpresa]       = useState(null);
-  const [iniciado, setIniciado]     = useState(false);
+  const [cargando, setCargando]      = useState(false);
+  const [empresa, setEmpresa]        = useState(null);
+  const [iniciado, setIniciado]      = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
-  // Reloj en tiempo real
   useEffect(() => {
     const t = setInterval(() => setHora(new Date()), 1000);
     return () => clearInterval(t);
@@ -30,19 +30,14 @@ export default function Fichar() {
     try {
       const snap = await getDoc(doc(db, "empresas", perfil.empresaId));
       if (snap.exists()) setEmpresa(snap.data());
-    } catch (e) {
-      console.error("Error cargando empresa:", e);
-    }
+    } catch (e) { console.error(e); }
   }, [perfil]);
 
   const cargarRegistrosHoy = useCallback(async () => {
     if (!user) return;
     try {
-      const hoy = new Date();
-      hoy.setHours(0, 0, 0, 0);
-      const manana = new Date(hoy);
-      manana.setDate(manana.getDate() + 1);
-
+      const hoy = new Date(); hoy.setHours(0,0,0,0);
+      const manana = new Date(hoy); manana.setDate(manana.getDate() + 1);
       const q = query(
         collection(db, "fichajes"),
         where("usuarioId", "==", user.uid),
@@ -51,14 +46,10 @@ export default function Fichar() {
         orderBy("timestamp", "asc")
       );
       const snap = await getDocs(q);
-      const lista = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setRegistros(lista);
-    } catch (e) {
-      console.error("Error cargando registros:", e);
-    }
+      setRegistros(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (e) { console.error(e); }
   }, [user]);
 
-  // Cargar datos al montar y cuando cambie el perfil
   useEffect(() => {
     if (perfil && user && !iniciado) {
       setIniciado(true);
@@ -77,7 +68,7 @@ export default function Fichar() {
         nombre:        perfil.nombre,
         empresaId:     perfil.empresaId,
         empresaNombre: empresa?.nombre || "",
-        tipo:          tipo,
+        tipo,
         timestamp:     Timestamp.fromDate(ahora),
         fecha:         format(ahora, "dd/MM/yyyy"),
         hora:          format(ahora, "HH:mm:ss"),
@@ -89,19 +80,26 @@ export default function Fichar() {
           : `✓ Salida registrada a las ${format(ahora, "HH:mm")}`,
         "success"
       );
-      // Recargar registros inmediatamente después de guardar
       await cargarRegistrosHoy();
     } catch (err) {
-      console.error("Error registrando fichaje:", err);
+      console.error(err);
       showToast("Error al registrar. Inténtalo de nuevo.", "error");
     }
     setCargando(false);
   };
 
-  const iniciales = (nombre) =>
-    (nombre || "?").split(" ").slice(0, 2).map(p => p[0]).join("").toUpperCase();
+  const handleLogout = async () => {
+    if (confirmLogout) {
+      await logout();
+    } else {
+      setConfirmLogout(true);
+      setTimeout(() => setConfirmLogout(false), 4000);
+    }
+  };
 
-  // El último registro determina qué botón mostrar
+  const iniciales = (nombre) =>
+    (nombre || "?").split(" ").slice(0,2).map(p => p[0]).join("").toUpperCase();
+
   const ultimoTipo = registrosHoy.length
     ? registrosHoy[registrosHoy.length - 1].tipo
     : null;
@@ -109,7 +107,23 @@ export default function Fichar() {
   return (
     <div className="fichar-wrap">
       {ToastUI}
-      <div className="card" style={{ textAlign: "center", padding: "32px 24px" }}>
+      <div className="card" style={{ textAlign:"center", padding:"28px 24px" }}>
+
+        {/* Botón cerrar sesión arriba a la derecha */}
+        <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:8 }}>
+          <button
+            onClick={handleLogout}
+            style={{
+              border: confirmLogout ? "1px solid #C0392B" : "1px solid #E5E7EB",
+              background: confirmLogout ? "#FDECEA" : "transparent",
+              color: confirmLogout ? "#C0392B" : "#9CA3AF",
+              borderRadius: 8, padding:"6px 12px",
+              fontSize: 13, cursor:"pointer", transition:"all .2s",
+              fontWeight: confirmLogout ? 600 : 400
+            }}>
+            {confirmLogout ? "¿Seguro? Pulsa de nuevo" : "Cerrar sesión"}
+          </button>
+        </div>
 
         <div className="avatar-emp">{iniciales(perfil?.nombre)}</div>
         <div className="emp-nombre">{perfil?.nombre}</div>
@@ -122,11 +136,10 @@ export default function Fichar() {
           {format(hora, "EEEE, d 'de' MMMM 'de' yyyy", { locale: es })}
         </div>
 
-        {/* Botón entrada: si no hay registros o el último fue salida */}
         {ultimoTipo !== "entrada" && (
           <button
             className="btn btn-green btn-lg"
-            style={{ marginBottom: 12 }}
+            style={{ marginBottom:12 }}
             onClick={() => registrar("entrada")}
             disabled={cargando}
           >
@@ -134,11 +147,10 @@ export default function Fichar() {
           </button>
         )}
 
-        {/* Botón salida: solo si el último registro fue entrada */}
         {ultimoTipo === "entrada" && (
           <button
             className="btn btn-red btn-lg"
-            style={{ marginBottom: 12 }}
+            style={{ marginBottom:12 }}
             onClick={() => registrar("salida")}
             disabled={cargando}
           >
@@ -146,25 +158,24 @@ export default function Fichar() {
           </button>
         )}
 
-        {/* Historial hoy */}
-        <div style={{ marginTop: 24, textAlign: "left" }}>
-          <p style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", marginBottom: 10 }}>
+        <div style={{ marginTop:24, textAlign:"left" }}>
+          <p style={{ fontSize:12, fontWeight:600, color:"#6B7280", marginBottom:10 }}>
             REGISTROS DE HOY
           </p>
           {registrosHoy.length === 0 ? (
-            <p style={{ fontSize: 13, color: "#9CA3AF", textAlign: "center", padding: "12px 0" }}>
+            <p style={{ fontSize:13, color:"#9CA3AF", textAlign:"center", padding:"12px 0" }}>
               Sin registros aún hoy
             </p>
           ) : (
             registrosHoy.map(r => (
               <div key={r.id} style={{
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-                padding: "10px 0", borderBottom: "1px solid #F3F4F6", fontSize: 14
+                display:"flex", justifyContent:"space-between", alignItems:"center",
+                padding:"10px 0", borderBottom:"1px solid #F3F4F6", fontSize:14
               }}>
-                <span className={`badge ${r.tipo === "entrada" ? "badge-green" : "badge-red"}`}>
+                <span className={`badge ${r.tipo==="entrada" ? "badge-green" : "badge-red"}`}>
                   {r.tipo === "entrada" ? "⬇ Entrada" : "⬆ Salida"}
                 </span>
-                <span style={{ fontWeight: 600 }}>{r.hora}</span>
+                <span style={{ fontWeight:600 }}>{r.hora}</span>
               </div>
             ))
           )}
