@@ -1,20 +1,32 @@
 // src/pages/Empleados.jsx
 import React, { useEffect, useState } from "react";
 import {
-  collection, getDocs, query, where,
-  doc, updateDoc, deleteDoc
+  collection, getDocs, doc, updateDoc, deleteDoc, setDoc
 } from "firebase/firestore";
 import {
-  createUserWithEmailAndPassword
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword
 } from "firebase/auth";
-import { setDoc } from "firebase/firestore";
+import { initializeApp, getApps } from "firebase/app";
+import { getAuth } from "firebase/auth";
 import { auth, db } from "../lib/firebase";
+import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/useToast";
+
+// Segunda instancia de Firebase solo para crear usuarios
+// sin cerrar la sesión del admin
+function getSecondaryAuth() {
+  const apps = getApps();
+  const secondaryApp = apps.find(a => a.name === "secondary") ||
+    initializeApp(auth.app.options, "secondary");
+  return getAuth(secondaryApp);
+}
 
 const VACIO = { nombre:"", email:"", password:"", empresaId:"", categoria:"", jornada:"completa", rol:"empleado" };
 
 export default function Empleados() {
   const { showToast, ToastUI } = useToast();
+  const { user: adminUser } = useAuth();
   const [empleados, setEmpleados] = useState([]);
   const [empresas,  setEmpresas]  = useState([]);
   const [modal,     setModal]     = useState(false);
@@ -50,22 +62,33 @@ export default function Empleados() {
     setGuardando(true);
     try {
       if (editId) {
-        // Solo actualizar datos (no email/pass desde aquí)
         await updateDoc(doc(db, "usuarios", editId), {
           nombre: form.nombre, empresaId: form.empresaId,
           categoria: form.categoria, jornada: form.jornada, rol: form.rol
         });
         showToast("Empleado actualizado", "success");
       } else {
-        // Crear usuario en Firebase Auth
-        const cred = await createUserWithEmailAndPassword(auth, form.email, form.password);
+        // Usar instancia secundaria para NO cerrar sesión del admin
+        const secondaryAuth = getSecondaryAuth();
+        const cred = await createUserWithEmailAndPassword(
+          secondaryAuth, form.email, form.password
+        );
+        const newUid = cred.user.uid;
+
+        // Cerrar sesión en la instancia secundaria (no afecta al admin)
+        await secondaryAuth.signOut();
+
         // Guardar perfil en Firestore
-        await setDoc(doc(db, "usuarios", cred.user.uid), {
-          nombre: form.nombre, email: form.email,
-          empresaId: form.empresaId, categoria: form.categoria,
-          jornada: form.jornada, rol: form.rol, activo: true
+        await setDoc(doc(db, "usuarios", newUid), {
+          nombre:     form.nombre,
+          email:      form.email,
+          empresaId:  form.empresaId,
+          categoria:  form.categoria,
+          jornada:    form.jornada,
+          rol:        form.rol,
+          activo:     true
         });
-        showToast("Empleado creado. Ya puede iniciar sesión.", "success");
+        showToast(`Empleado "${form.nombre}" creado correctamente`, "success");
       }
       setModal(false);
       cargar();
@@ -198,7 +221,7 @@ export default function Empleados() {
             <div className="modal-actions">
               <button className="btn" onClick={() => setModal(false)}>Cancelar</button>
               <button className="btn btn-primary" onClick={guardar} disabled={guardando}>
-                {guardando ? "Guardando..." : "Guardar"}
+                {guardando ? "Creando empleado..." : "Guardar"}
               </button>
             </div>
           </div>
