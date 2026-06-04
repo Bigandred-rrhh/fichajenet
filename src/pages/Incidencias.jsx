@@ -20,9 +20,9 @@ const TIPOS = [
 ];
 
 const ESTADOS = {
-  pendiente: { label: "Pendiente",  clase: "badge-amber" },
-  aprobada:  { label: "Aprobada",   clase: "badge-green" },
-  rechazada: { label: "Rechazada",  clase: "badge-red"   },
+  pendiente: { label:"Pendiente",  clase:"badge-amber" },
+  aprobada:  { label:"Aprobada",   clase:"badge-green" },
+  rechazada: { label:"Rechazada",  clase:"badge-red"   },
 };
 
 const VACIA = {
@@ -36,29 +36,42 @@ export default function Incidencias() {
   const { showToast, ToastUI } = useToast();
   const esAdmin = perfil?.rol === "admin" || perfil?.rol === "rrhh";
 
-  const [incidencias, setIncidencias] = useState([]);
-  const [empleados,   setEmpleados]   = useState([]);
-  const [empresas,    setEmpresas]    = useState([]);
-  const [modal,       setModal]       = useState(false);
-  const [form,        setForm]        = useState(VACIA);
-  const [editId,      setEditId]      = useState(null);
-  const [guardando,   setGuardando]   = useState(false);
-  const [filtroEstado,setFiltroEstado]= useState("");
+  const [incidencias,  setIncidencias]  = useState([]);
+  const [empleados,    setEmpleados]    = useState([]);
+  const [empresas,     setEmpresas]     = useState([]);
+  const [modal,        setModal]        = useState(false);
+  const [form,         setForm]         = useState(VACIA);
+  const [editId,       setEditId]       = useState(null);
+  const [guardando,    setGuardando]    = useState(false);
+  const [filtroEstado, setFiltroEstado] = useState("");
 
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => { cargar(); }, [perfil]);
 
   const cargar = async () => {
-    const [incSnap, empSnap, usrSnap] = await Promise.all([
-      getDocs(query(collection(db, "incidencias"), orderBy("creadaEn", "desc"))),
-      getDocs(collection(db, "empresas")),
-      getDocs(collection(db, "usuarios")),
-    ]);
-    let lista = incSnap.docs.map(d => ({ id:d.id, ...d.data() }));
-    // Empleado solo ve las suyas
-    if (!esAdmin) lista = lista.filter(i => i.empleadoId === user.uid);
-    setIncidencias(lista);
-    setEmpresas(empSnap.docs.map(d => ({ id:d.id, ...d.data() })));
-    setEmpleados(usrSnap.docs.map(d => ({ id:d.id, ...d.data() })));
+    if (!perfil) return;
+    try {
+      // Admin ve todas; empleado solo las suyas (filtrando en la query)
+      const q = esAdmin
+        ? query(collection(db, "incidencias"), orderBy("creadaEn", "desc"))
+        : query(
+            collection(db, "incidencias"),
+            where("empleadoId", "==", user.uid),
+            orderBy("creadaEn", "desc")
+          );
+
+      const [incSnap, empSnap, usrSnap] = await Promise.all([
+        getDocs(q),
+        getDocs(collection(db, "empresas")),
+        esAdmin ? getDocs(collection(db, "usuarios")) : Promise.resolve({ docs: [] }),
+      ]);
+
+      setIncidencias(incSnap.docs.map(d => ({ id:d.id, ...d.data() })));
+      setEmpresas(empSnap.docs.map(d => ({ id:d.id, ...d.data() })));
+      setEmpleados(usrSnap.docs.map(d => ({ id:d.id, ...d.data() })));
+    } catch(e) {
+      console.error("Error cargando incidencias:", e);
+      showToast("Error al cargar incidencias", "error");
+    }
   };
 
   const abrir = (inc) => {
@@ -66,7 +79,6 @@ export default function Incidencias() {
       setForm({ ...inc });
       setEditId(inc.id);
     } else {
-      // Pre-rellenar con datos del usuario actual si es empleado
       const f = { ...VACIA };
       if (!esAdmin) {
         f.empleadoId     = user.uid;
@@ -82,7 +94,7 @@ export default function Incidencias() {
   };
 
   const onEmpleadoChange = (uid) => {
-    const emp = empleados.find(e => e.id === uid);
+    const emp     = empleados.find(e => e.id === uid);
     const empresa = empresas.find(e => e.id === emp?.empresaId);
     setForm(f => ({
       ...f,
@@ -100,18 +112,18 @@ export default function Incidencias() {
     setGuardando(true);
     try {
       const datos = {
-        empleadoId:      form.empleadoId,
-        empleadoNombre:  form.empleadoNombre,
-        empresaId:       form.empresaId,
-        empresaNombre:   form.empresaNombre,
-        tipo:            form.tipo,
-        fecha:           form.fecha,
-        horaCorrecta:    form.horaCorrecta || "",
-        descripcion:     form.descripcion || "",
-        estado:          esAdmin ? (form.estado || "pendiente") : "pendiente",
-        creadaEn:        editId ? form.creadaEn : Timestamp.now(),
-        creadaPor:       editId ? form.creadaPor : perfil.nombre,
-        actualizadaEn:   Timestamp.now(),
+        empleadoId:     form.empleadoId,
+        empleadoNombre: form.empleadoNombre,
+        empresaId:      form.empresaId,
+        empresaNombre:  form.empresaNombre,
+        tipo:           form.tipo,
+        fecha:          form.fecha,
+        horaCorrecta:   form.horaCorrecta || "",
+        descripcion:    form.descripcion  || "",
+        estado:         esAdmin ? (form.estado || "pendiente") : "pendiente",
+        creadaEn:       editId ? form.creadaEn : Timestamp.now(),
+        creadaPor:      editId ? form.creadaPor : perfil.nombre,
+        actualizadaEn:  Timestamp.now(),
       };
       if (editId) {
         await updateDoc(doc(db, "incidencias", editId), datos);
@@ -129,9 +141,7 @@ export default function Incidencias() {
   };
 
   const cambiarEstado = async (id, estado) => {
-    await updateDoc(doc(db, "incidencias", id), {
-      estado, actualizadaEn: Timestamp.now()
-    });
+    await updateDoc(doc(db, "incidencias", id), { estado, actualizadaEn: Timestamp.now() });
     showToast(`Incidencia ${estado}`, "success");
     cargar();
   };
@@ -157,7 +167,7 @@ export default function Incidencias() {
           <h1 style={{ fontSize:22, fontWeight:700 }}>Incidencias</h1>
           {pendientes > 0 && (
             <span style={{ fontSize:13, color:"#BA7517" }}>
-              ⚠ {pendientes} incidencia{pendientes>1?"s":""} pendiente{pendientes>1?"s":""}
+              ⚠ {pendientes} pendiente{pendientes>1?"s":""}
             </span>
           )}
         </div>
@@ -237,19 +247,16 @@ export default function Incidencias() {
               {editId ? "Editar incidencia" : "Nueva incidencia"}
             </div>
 
-            {esAdmin && (
+            {esAdmin ? (
               <div className="form-group">
                 <label className="form-label">Empleado *</label>
                 <select className="form-input form-select"
                   value={form.empleadoId} onChange={e => onEmpleadoChange(e.target.value)}>
                   <option value="">Selecciona empleado...</option>
-                  {empleados.map(e => (
-                    <option key={e.id} value={e.id}>{e.nombre}</option>
-                  ))}
+                  {empleados.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
                 </select>
               </div>
-            )}
-            {!esAdmin && (
+            ) : (
               <div className="form-group">
                 <label className="form-label">Empleado</label>
                 <input className="form-input" value={perfil.nombre} disabled
@@ -259,7 +266,7 @@ export default function Incidencias() {
 
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
               <div className="form-group">
-                <label className="form-label">Fecha de la incidencia *</label>
+                <label className="form-label">Fecha *</label>
                 <input className="form-input" type="date"
                   value={form.fecha} onChange={e => setForm({...form, fecha:e.target.value})} />
               </div>
@@ -272,7 +279,7 @@ export default function Incidencias() {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Tipo de incidencia *</label>
+              <label className="form-label">Tipo *</label>
               <select className="form-input form-select"
                 value={form.tipo} onChange={e => setForm({...form, tipo:e.target.value})}>
                 {TIPOS.map(t => <option key={t} value={t}>{t}</option>)}
@@ -282,7 +289,7 @@ export default function Incidencias() {
             <div className="form-group">
               <label className="form-label">Descripción / Justificación</label>
               <textarea className="form-input" rows={3}
-                placeholder="Explica brevemente el motivo de la incidencia..."
+                placeholder="Explica brevemente el motivo..."
                 value={form.descripcion}
                 onChange={e => setForm({...form, descripcion:e.target.value})}
                 style={{ resize:"vertical" }} />
