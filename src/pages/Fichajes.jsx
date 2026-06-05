@@ -117,28 +117,40 @@ export default function Fichajes() {
         if (minCorr === null) return;
 
         if (inc.tipo === "Olvido de fichaje de entrada") {
-          // Solo añadir si no hay ninguna entrada ya
-          const tieneEntrada = eventos.some(e => e.tipo === "entrada");
-          if (!tieneEntrada) eventos.push({ tipo:"entrada", mins:minCorr, fuente:"incidencia" });
+          const idxEntrada = eventos.findIndex(e => e.tipo === "entrada");
+          if (idxEntrada >= 0) {
+            // Si la hora de la incidencia es ANTERIOR a la entrada existente,
+            // reemplazarla (el empleado llegó antes pero olvidó fichar)
+            if (minCorr < eventos[idxEntrada].mins) {
+              eventos[idxEntrada] = { tipo:"entrada", mins:minCorr, fuente:"incidencia" };
+            }
+          } else {
+            // No había entrada → añadirla
+            eventos.push({ tipo:"entrada", mins:minCorr, fuente:"incidencia" });
+          }
         }
         else if (inc.tipo === "Olvido de fichaje de salida") {
-          // Solo añadir si no hay ninguna salida ya
-          const tieneSalida = eventos.some(e => e.tipo === "salida");
-          if (!tieneSalida) eventos.push({ tipo:"salida", mins:minCorr, fuente:"incidencia" });
+          const idxSalida = eventos.findIndex(e => e.tipo === "salida");
+          if (idxSalida >= 0) {
+            // Si la hora de la incidencia es POSTERIOR a la salida existente,
+            // reemplazarla (el empleado salió más tarde pero olvidó fichar)
+            if (minCorr > eventos[idxSalida].mins) {
+              eventos[idxSalida] = { tipo:"salida", mins:minCorr, fuente:"incidencia" };
+            }
+          } else {
+            // No había salida → añadirla
+            eventos.push({ tipo:"salida", mins:minCorr, fuente:"incidencia" });
+          }
         }
         else if (inc.tipo === "Error en la hora fichada") {
           // Reemplazar el fichaje más cercano en tiempo con la hora correcta
-          // Buscar si el error es de entrada o salida por contexto
-          // Si hay una entrada sin par de salida → corregir salida; si no → corregir entrada
           const entradas = eventos.filter(e => e.tipo==="entrada");
           const salidas  = eventos.filter(e => e.tipo==="salida");
           if (entradas.length > salidas.length) {
-            // Falta una salida → la hora correcta es la salida corregida
             const idx = eventos.findIndex(e => e.tipo==="salida");
             if (idx >= 0) eventos[idx].mins = minCorr;
             else eventos.push({ tipo:"salida", mins:minCorr, fuente:"incidencia" });
           } else {
-            // Corregir entrada
             const idx = eventos.findIndex(e => e.tipo==="entrada");
             if (idx >= 0) eventos[idx].mins = minCorr;
             else eventos.push({ tipo:"entrada", mins:minCorr, fuente:"incidencia" });
