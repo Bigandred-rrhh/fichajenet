@@ -5,6 +5,38 @@ import { db } from "../lib/firebase";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import * as XLSX from "xlsx";
 
+// Normaliza cualquier formato de fecha a dd/MM/yyyy
+function normFecha(f) {
+  if (!f) return "";
+  if (f.includes("-")) { const [y,m,d] = f.split("-"); return `${d}/${m}/${y}`; }
+  return f;
+}
+
+// Convierte "HH:mm" o "HH:mm:ss" a minutos desde medianoche
+function horaAMins(h) {
+  if (!h) return null;
+  const partes = h.split(":");
+  return parseInt(partes[0]) * 60 + parseInt(partes[1]);
+}
+
+// Calcula horas trabajadas dado un array de eventos {tipo, mins}
+function calcularTotalMins(eventos) {
+  let total = 0;
+  const evs = [...eventos].sort((a,b) => a.mins - b.mins);
+  for (let i = 0; i < evs.length - 1; i++) {
+    if (evs[i].tipo === "entrada" && evs[i+1].tipo === "salida") {
+      total += evs[i+1].mins - evs[i].mins;
+      i++;
+    }
+  }
+  return total;
+}
+
+function minsATexto(mins) {
+  if (mins <= 0) return null;
+  return `${Math.floor(mins/60)}h ${String(mins%60).padStart(2,"0")}m`;
+}
+
 export default function Fichajes() {
   const [fichajes,    setFichajes]    = useState([]);
   const [incidencias, setIncidencias] = useState([]);
@@ -26,114 +58,132 @@ export default function Fichajes() {
     const [y, m] = mes.split("-").map(Number);
     const desde  = startOfMonth(new Date(y, m-1));
     const hasta  = endOfMonth(new Date(y, m-1));
-
     const baseQuery = filtroEmp
       ? [where("empresaId","==",filtroEmp), where("timestamp",">=",Timestamp.fromDate(desde)), where("timestamp","<=",Timestamp.fromDate(hasta)), orderBy("timestamp","desc")]
       : [where("timestamp",">=",Timestamp.fromDate(desde)), where("timestamp","<=",Timestamp.fromDate(hasta)), orderBy("timestamp","desc")];
 
-    // Para incidencias del mes usamos el rango de fechas en string yyyy-MM
-    const mesPrefix = mes; // "yyyy-MM"
-
     const [fSnap, iSnap] = await Promise.all([
-      getDocs(query(collection(db, "fichajes"), ...baseQuery)),
-      getDocs(query(collection(db, "incidencias"), orderBy("creadaEn", "desc"))),
+      getDocs(query(collection(db,"fichajes"), ...baseQuery)),
+      getDocs(query(collection(db,"incidencias"), orderBy("creadaEn","desc"))),
     ]);
 
     setFichajes(fSnap.docs.map(d => ({ id:d.id, ...d.data() })));
-    // Filtrar incidencias del mes en cliente (evita índice compuesto)
     setIncidencias(iSnap.docs
       .map(d => ({ id:d.id, ...d.data() }))
-      .filter(i => i.fecha && i.fecha.startsWith(mesPrefix))
+      .filter(i => i.fecha && normFecha(i.fecha).endsWith(mes.slice(5)+"/"+mes.slice(0,4)) === false
+        ? normFecha(i.fecha).slice(3) === mes.slice(5)+"/"+mes.slice(0,4) // MM/yyyy
+        : true
+      )
     );
     setCargando(false);
   };
 
-  // Normaliza fecha a dd/MM/yyyy para comparar
-  const normFecha = (f) => {
-    if (!f) return "";
-    // Si viene en formato yyyy-MM-dd la convierte a dd/MM/yyyy
-    if (f.includes("-")) {
-      const [y,m,d] = f.split("-");
-      return `${d}/${m}/${y}`;
-    }
-    return f; // ya está en dd/MM/yyyy
-  };
-
   const calcularResumen = () => {
     const mapa = {};
-    // Ordenar ascendente para procesar pares entrada/salida correctamente
     const ascendente = [...fichajes].sort((a,b) =>
       (a.timestamp?.seconds||0) - (b.timestamp?.seconds||0)
     );
 
     ascendente.forEach(f => {
-      // Solo incluir fichajes de empleados (excluir fichajes hechos por el admin
-      // en nombre propio si su rol es admin — se identifican porque el campo
-      // usuarioId coincide con un usuario de rol admin)
       const clave = `${f.usuarioId}_${f.fecha}`;
       if (!mapa[clave]) mapa[clave] = {
-        usuarioId: f.usuarioId,
-        nombre:    f.nombre,
-        empresa:   f.empresaNombre,
-        fecha:     f.fecha,
-        registros: []
+        usuarioId: f.usuarioId, nombre: f.nombre,
+        empresa: f.empresaNombre, fecha: f.fecha, registros: []
       };
       mapa[clave].registros.push(f);
     });
 
     return Object.values(mapa).map(dia => {
-      const regs = dia.registros;
-      let totalMins = 0;
-
-      // Calcular horas sumando todos los pares entrada→salida del día
-      for (let i = 0; i < regs.length - 1; i++) {
-        if (regs[i].tipo === "entrada" && regs[i+1].tipo === "salida") {
-          const e = regs[i].timestamp?.toDate?.();
-          const s = regs[i+1].timestamp?.toDate?.();
-          if (e && s) totalMins += Math.round((s - e) / 60000);
-          i++;
-        }
-      }
-
-      const entrada = regs.find(r => r.tipo === "entrada")?.hora || "—";
-      const salida  = [...regs].reverse().find(r => r.tipo === "salida")?.hora || "—";
-      const h = Math.floor(totalMins / 60);
-      const m = totalMins % 60;
-
-      // Buscar incidencias: comparar fechas normalizadas a dd/MM/yyyy
       const fechaNorm = normFecha(dia.fecha);
-      const incs = incidencias.filter(i =>
+
+      // Incidencias aprobadas del empleado en este día
+      const incsAprobadas = incidencias.filter(i =>
         i.empleadoId === dia.usuarioId &&
-        normFecha(i.fecha) === fechaNorm
+        normFecha(i.fecha) === fechaNorm &&
+        i.estado === "aprobada" &&
+        i.horaCorrecta
+      );
+
+      // Construir eventos del día a partir de fichajes reales
+      let eventos = dia.registros.map(r => ({
+        tipo:   r.tipo,
+        mins:   horaAMins(r.hora),
+        fuente: "fichaje"
+      })).filter(e => e.mins !== null);
+
+      // Aplicar incidencias aprobadas
+      incsAprobadas.forEach(inc => {
+        const minCorr = horaAMins(inc.horaCorrecta);
+        if (minCorr === null) return;
+
+        if (inc.tipo === "Olvido de fichaje de entrada") {
+          // Solo añadir si no hay ninguna entrada ya
+          const tieneEntrada = eventos.some(e => e.tipo === "entrada");
+          if (!tieneEntrada) eventos.push({ tipo:"entrada", mins:minCorr, fuente:"incidencia" });
+        }
+        else if (inc.tipo === "Olvido de fichaje de salida") {
+          // Solo añadir si no hay ninguna salida ya
+          const tieneSalida = eventos.some(e => e.tipo === "salida");
+          if (!tieneSalida) eventos.push({ tipo:"salida", mins:minCorr, fuente:"incidencia" });
+        }
+        else if (inc.tipo === "Error en la hora fichada") {
+          // Reemplazar el fichaje más cercano en tiempo con la hora correcta
+          // Buscar si el error es de entrada o salida por contexto
+          // Si hay una entrada sin par de salida → corregir salida; si no → corregir entrada
+          const entradas = eventos.filter(e => e.tipo==="entrada");
+          const salidas  = eventos.filter(e => e.tipo==="salida");
+          if (entradas.length > salidas.length) {
+            // Falta una salida → la hora correcta es la salida corregida
+            const idx = eventos.findIndex(e => e.tipo==="salida");
+            if (idx >= 0) eventos[idx].mins = minCorr;
+            else eventos.push({ tipo:"salida", mins:minCorr, fuente:"incidencia" });
+          } else {
+            // Corregir entrada
+            const idx = eventos.findIndex(e => e.tipo==="entrada");
+            if (idx >= 0) eventos[idx].mins = minCorr;
+            else eventos.push({ tipo:"entrada", mins:minCorr, fuente:"incidencia" });
+          }
+        }
+      });
+
+      const totalMins  = calcularTotalMins(eventos);
+      const evOrdenado = [...eventos].sort((a,b) => a.mins - b.mins);
+      const entradaEv  = evOrdenado.find(e => e.tipo==="entrada");
+      const salidaEv   = [...evOrdenado].reverse().find(e => e.tipo==="salida");
+
+      // Para mostrar usamos las horas originales de fichaje si existen
+      const entradaHora = dia.registros.find(r=>r.tipo==="entrada")?.hora
+        || (entradaEv ? `${String(Math.floor(entradaEv.mins/60)).padStart(2,"0")}:${String(entradaEv.mins%60).padStart(2,"0")}` : "—");
+      const salidaHora  = [...dia.registros].reverse().find(r=>r.tipo==="salida")?.hora
+        || (salidaEv ? `${String(Math.floor(salidaEv.mins/60)).padStart(2,"0")}:${String(salidaEv.mins%60).padStart(2,"0")}` : "—");
+
+      // Todas las incidencias del día (para mostrar marca)
+      const todasIncs = incidencias.filter(i =>
+        i.empleadoId === dia.usuarioId && normFecha(i.fecha) === fechaNorm
       );
 
       return {
-        usuarioId: dia.usuarioId,
-        nombre:    dia.nombre,
-        empresa:   dia.empresa,
-        fecha:     dia.fecha,
-        entrada,
-        salida,
-        total:     totalMins > 0
-          ? `${h}h ${String(m).padStart(2,"0")}m`
-          : salida === "—" ? "En curso" : "—",
-        incidencias: incs
+        usuarioId:   dia.usuarioId,
+        nombre:      dia.nombre,
+        empresa:     dia.empresa,
+        fecha:       dia.fecha,
+        entrada:     entradaHora,
+        salida:      salidaHora,
+        total:       minsATexto(totalMins) || (salidaHora==="—" ? "En curso" : "—"),
+        incidencias: todasIncs,
+        conIncAprobada: incsAprobadas.length > 0
       };
     }).sort((a,b) => {
-      // Ordenar por fecha descendente (dd/MM/yyyy → comparar como yyyy-MM-dd)
-      const toSort = (f) => {
+      const toISO = f => {
         if (f.includes("-")) return f;
-        const [d,m,y] = f.split("/");
-        return `${y}-${m}-${d}`;
+        const [d,m,y] = f.split("/"); return `${y}-${m}-${d}`;
       };
-      return toSort(b.fecha).localeCompare(toSort(a.fecha));
+      return toISO(b.fecha).localeCompare(toISO(a.fecha));
     });
   };
 
   const exportarExcel = () => {
     const resumen = calcularResumen();
-
-    // Hoja 1: Fichajes con columna incidencias
     const datosFichajes = resumen.map(r => ({
       "Empleado":         r.nombre,
       "Empresa":          r.empresa,
@@ -142,11 +192,9 @@ export default function Fichajes() {
       "Hora salida":      r.salida,
       "Horas trabajadas": r.total,
       "Incidencias":      r.incidencias.length > 0
-        ? r.incidencias.map(i => `${i.tipo} (${i.estado})`).join("; ")
+        ? r.incidencias.map(i=>`${i.tipo} (${i.estado})`).join("; ")
         : "—",
     }));
-
-    // Hoja 2: Detalle incidencias del mes
     const datosInc = incidencias.length > 0
       ? incidencias.map(i => ({
           "Empleado":       i.empleadoNombre,
@@ -158,13 +206,13 @@ export default function Fichajes() {
           "Estado":         i.estado,
           "Registrada por": i.creadaPor    || "—",
         }))
-      : [{ "Info": "Sin incidencias este mes" }];
+      : [{ "Info":"Sin incidencias este mes" }];
 
     const wb  = XLSX.utils.book_new();
     const ws1 = XLSX.utils.json_to_sheet(datosFichajes);
     const ws2 = XLSX.utils.json_to_sheet(datosInc);
-    ws1["!cols"] = [22,22,12,12,12,16,40].map(w => ({wch:w}));
-    ws2["!cols"] = [22,22,12,24,12,30,12,18].map(w => ({wch:w}));
+    ws1["!cols"] = [22,22,12,12,12,16,40].map(w=>({wch:w}));
+    ws2["!cols"] = [22,22,12,24,12,30,12,18].map(w=>({wch:w}));
     XLSX.utils.book_append_sheet(wb, ws1, "Fichajes");
     XLSX.utils.book_append_sheet(wb, ws2, "Incidencias");
     XLSX.writeFile(wb, `fichajes_${mes}.xlsx`);
@@ -221,13 +269,22 @@ export default function Fichajes() {
                 <tr key={i}>
                   <td style={{ fontWeight:500 }}>{r.nombre}</td>
                   <td style={{ fontSize:13, color:"#6B7280" }}>{r.empresa}</td>
-                  <td>{r.fecha}</td>
+                  <td>
+                    {r.fecha}
+                    {r.conIncAprobada && (
+                      <span title="Horas corregidas por incidencia aprobada"
+                        style={{ marginLeft:6, fontSize:11, color:"#2E5FA3" }}>✎</span>
+                    )}
+                  </td>
                   <td><span className="badge badge-green">{r.entrada}</span></td>
                   <td><span className={`badge ${r.salida==="—"?"badge-gray":"badge-red"}`}>{r.salida}</span></td>
                   <td style={{ fontWeight:600,
                     color: r.total==="En curso" ? "#2E5FA3"
                          : r.total==="—" ? "#9CA3AF" : "#0F6E56" }}>
                     {r.total}
+                    {r.conIncAprobada && (
+                      <span style={{ fontSize:11, color:"#2E5FA3", marginLeft:4 }}>✎</span>
+                    )}
                   </td>
                   <td>
                     {r.incidencias.length > 0 ? (
