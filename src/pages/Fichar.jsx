@@ -9,8 +9,9 @@ import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/useToast";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { useNavigate } from "react-router-dom";
+import Notificaciones from "../components/Notificaciones";
 
-// Calcula horas trabajadas entre pares entrada/salida
 function calcularHoras(registros) {
   let totalMinutos = 0;
   const lista = [...registros];
@@ -19,7 +20,7 @@ function calcularHoras(registros) {
       const entrada = lista[i].timestamp?.toDate?.() || new Date();
       const salida  = lista[i+1].timestamp?.toDate?.() || new Date();
       totalMinutos += Math.round((salida - entrada) / 60000);
-      i++; // saltar la salida ya procesada
+      i++;
     }
   }
   if (totalMinutos <= 0) return null;
@@ -31,35 +32,33 @@ function calcularHoras(registros) {
 export default function Fichar() {
   const { user, perfil, logout } = useAuth();
   const { showToast, ToastUI } = useToast();
+  const navigate = useNavigate();
   const [hora, setHora]               = useState(new Date());
   const [registrosHoy, setRegistros]  = useState([]);
   const [cargando, setCargando]       = useState(false);
   const [empresa, setEmpresa]         = useState(null);
   const [iniciado, setIniciado]       = useState(false);
-  const [confirmLogout, setConfirmLogout] = useState(false);
   const [tiempoVivo, setTiempoVivo]   = useState(null);
+  const [menuAbierto, setMenuAbierto] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   useEffect(() => {
     const t = setInterval(() => setHora(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 
-  // Contador en vivo mientras está trabajando
   useEffect(() => {
     const ultimoTipo = registrosHoy.length
       ? registrosHoy[registrosHoy.length - 1].tipo : null;
     if (ultimoTipo !== "entrada") { setTiempoVivo(null); return; }
     const ultimaEntrada = registrosHoy[registrosHoy.length - 1].timestamp?.toDate?.();
     if (!ultimaEntrada) return;
-    const t = setInterval(() => {
+    const calcular = () => {
       const mins = Math.round((new Date() - ultimaEntrada) / 60000);
-      const h = Math.floor(mins / 60);
-      const m = mins % 60;
-      setTiempoVivo(`${h}h ${String(m).padStart(2,"0")}m`);
-    }, 10000); // cada 10 segundos
-    // calcular inmediatamente
-    const mins = Math.round((new Date() - ultimaEntrada) / 60000);
-    setTiempoVivo(`${Math.floor(mins/60)}h ${String(mins%60).padStart(2,"0")}m`);
+      setTiempoVivo(`${Math.floor(mins/60)}h ${String(mins%60).padStart(2,"0")}m`);
+    };
+    calcular();
+    const t = setInterval(calcular, 10000);
     return () => clearInterval(t);
   }, [registrosHoy]);
 
@@ -101,13 +100,10 @@ export default function Fichar() {
     setCargando(true);
     try {
       const ahora = new Date();
-      // Calcular horas acumuladas del día al fichar salida
       let horasDia = null;
       if (tipo === "salida" && registrosHoy.length > 0) {
         const ultima = registrosHoy[registrosHoy.length-1].timestamp?.toDate?.();
         if (ultima) {
-          const mins = Math.round((ahora - ultima) / 60000);
-          // sumar a horas ya acumuladas
           let totalMins = 0;
           const lista = [...registrosHoy];
           for (let i = 0; i < lista.length-1; i++) {
@@ -118,13 +114,10 @@ export default function Fichar() {
               i++;
             }
           }
-          totalMins += mins; // añadir el tramo actual
-          const h = Math.floor(totalMins/60);
-          const m = totalMins%60;
-          horasDia = `${h}h ${String(m).padStart(2,"0")}m`;
+          totalMins += Math.round((ahora - ultima) / 60000);
+          horasDia = `${Math.floor(totalMins/60)}h ${String(totalMins%60).padStart(2,"0")}m`;
         }
       }
-
       await addDoc(collection(db, "fichajes"), {
         usuarioId:     user.uid,
         nombre:        perfil.nombre,
@@ -134,10 +127,9 @@ export default function Fichar() {
         timestamp:     Timestamp.fromDate(ahora),
         fecha:         format(ahora, "dd/MM/yyyy"),
         hora:          format(ahora, "HH:mm:ss"),
-        horasDia:      horasDia, // solo se guarda en el registro de salida
+        horasDia:      horasDia,
         ip:            "web"
       });
-
       if (tipo === "salida" && horasDia) {
         showToast(`✓ Salida registrada — Total hoy: ${horasDia}`, "success");
       } else {
@@ -167,23 +159,70 @@ export default function Fichar() {
 
   const totalHoyFinalizado = calcularHoras(registrosHoy);
 
+  const menuOpciones = [
+    { icon:"📅", label:"Mi historial",       ruta:"/mi-historial" },
+    { icon:"⚠️", label:"Mis incidencias",    ruta:"/incidencias" },
+    { icon:"🔑", label:"Cambiar contraseña", ruta:"/cambiar-password" },
+  ];
+
   return (
     <div className="fichar-wrap">
       {ToastUI}
-      <div className="card" style={{ textAlign:"center", padding:"28px 24px" }}>
+      <div className="card" style={{ textAlign:"center", padding:"28px 24px", position:"relative" }}>
 
-        {/* Cerrar sesión */}
-        <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:8 }}>
-          <button onClick={handleLogout} style={{
-            border: confirmLogout ? "1px solid #C0392B" : "1px solid #E5E7EB",
-            background: confirmLogout ? "#FDECEA" : "transparent",
-            color: confirmLogout ? "#C0392B" : "#9CA3AF",
-            borderRadius:8, padding:"6px 12px", fontSize:13,
-            cursor:"pointer", transition:"all .2s",
-            fontWeight: confirmLogout ? 600 : 400
-          }}>
-            {confirmLogout ? "¿Seguro? Pulsa de nuevo" : "Cerrar sesión"}
-          </button>
+        {/* Barra superior: notificaciones + mi cuenta */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+          <Notificaciones />
+
+          {/* Menú Mi cuenta */}
+          <div style={{ position:"relative" }}>
+            <button onClick={() => setMenuAbierto(!menuAbierto)} style={{
+              display:"flex", alignItems:"center", gap:6,
+              border:"1px solid #E5E7EB", background:"transparent",
+              borderRadius:8, padding:"6px 12px", fontSize:13,
+              cursor:"pointer", color:"#6B7280"
+            }}>
+              👤 Mi cuenta ▾
+            </button>
+
+            {menuAbierto && (
+              <div style={{
+                position:"absolute", right:0, top:"calc(100% + 6px)",
+                background:"#fff", border:"1px solid #E5E7EB",
+                borderRadius:10, boxShadow:"0 8px 24px rgba(0,0,0,.12)",
+                zIndex:100, minWidth:200, overflow:"hidden"
+              }}>
+                {menuOpciones.map(op => (
+                  <button key={op.ruta} onClick={() => { setMenuAbierto(false); navigate(op.ruta); }}
+                    style={{
+                      display:"flex", alignItems:"center", gap:10,
+                      width:"100%", padding:"11px 16px", border:"none",
+                      background:"transparent", cursor:"pointer", fontSize:14,
+                      color:"#1A1A2E", textAlign:"left", borderBottom:"1px solid #F3F4F6"
+                    }}
+                    onMouseEnter={e=>e.currentTarget.style.background="#F9FAFB"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                  >
+                    <span style={{ fontSize:16 }}>{op.icon}</span>
+                    {op.label}
+                  </button>
+                ))}
+                <button onClick={handleLogout} style={{
+                  display:"flex", alignItems:"center", gap:10,
+                  width:"100%", padding:"11px 16px", border:"none",
+                  background:"transparent", cursor:"pointer", fontSize:14,
+                  color: confirmLogout ? "#C0392B" : "#6B7280", textAlign:"left",
+                  fontWeight: confirmLogout ? 600 : 400
+                }}
+                  onMouseEnter={e=>e.currentTarget.style.background="#FFF5F5"}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                >
+                  <span style={{ fontSize:16 }}>🚪</span>
+                  {confirmLogout ? "¿Seguro? Pulsa de nuevo" : "Cerrar sesión"}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="avatar-emp">{iniciales(perfil?.nombre)}</div>
@@ -197,31 +236,24 @@ export default function Fichar() {
           {format(hora, "EEEE, d 'de' MMMM 'de' yyyy", { locale: es })}
         </div>
 
-        {/* Contador en vivo si está trabajando */}
         {ultimoTipo === "entrada" && tiempoVivo && (
-          <div style={{
-            background:"#EBF2FB", borderRadius:10, padding:"10px 16px",
-            marginBottom:16, display:"inline-block"
-          }}>
+          <div style={{ background:"#EBF2FB", borderRadius:10, padding:"10px 16px",
+            marginBottom:16, display:"inline-block" }}>
             <span style={{ fontSize:12, color:"#2E5FA3", fontWeight:500 }}>
               ⏱ Tiempo trabajado hoy: <strong>{tiempoVivo}</strong>
             </span>
           </div>
         )}
 
-        {/* Total finalizado si ya fichó salida */}
         {ultimoTipo === "salida" && totalHoyFinalizado && (
-          <div style={{
-            background:"#E1F5EE", borderRadius:10, padding:"10px 16px",
-            marginBottom:16, display:"inline-block"
-          }}>
+          <div style={{ background:"#E1F5EE", borderRadius:10, padding:"10px 16px",
+            marginBottom:16, display:"inline-block" }}>
             <span style={{ fontSize:12, color:"#0F6E56", fontWeight:500 }}>
               ✓ Total hoy: <strong>{totalHoyFinalizado}</strong>
             </span>
           </div>
         )}
 
-        {/* Botones fichaje */}
         {ultimoTipo !== "entrada" && (
           <button className="btn btn-green btn-lg" style={{ marginBottom:12 }}
             onClick={() => registrar("entrada")} disabled={cargando}>
@@ -235,7 +267,6 @@ export default function Fichar() {
           </button>
         )}
 
-        {/* Historial hoy */}
         <div style={{ marginTop:24, textAlign:"left" }}>
           <p style={{ fontSize:12, fontWeight:600, color:"#6B7280", marginBottom:10 }}>
             REGISTROS DE HOY
@@ -255,9 +286,7 @@ export default function Fichar() {
                 </span>
                 <div style={{ display:"flex", gap:12, alignItems:"center" }}>
                   {r.horasDia && (
-                    <span style={{ fontSize:12, color:"#0F6E56", fontWeight:500 }}>
-                      {r.horasDia}
-                    </span>
+                    <span style={{ fontSize:12, color:"#0F6E56", fontWeight:500 }}>{r.horasDia}</span>
                   )}
                   <span style={{ fontWeight:600 }}>{r.hora}</span>
                 </div>
