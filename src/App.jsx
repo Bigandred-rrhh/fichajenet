@@ -2,13 +2,17 @@
 import React from "react";
 import { Routes, Route, NavLink, Navigate } from "react-router-dom";
 import { useAuth } from "./lib/AuthContext";
-import Login       from "./pages/Login";
-import Dashboard   from "./pages/Dashboard";
-import Empresas    from "./pages/Empresas";
-import Empleados   from "./pages/Empleados";
-import Fichajes    from "./pages/Fichajes";
-import Fichar      from "./pages/Fichar";
-import Incidencias from "./pages/Incidencias";
+import Login          from "./pages/Login";
+import Dashboard      from "./pages/Dashboard";
+import Empresas       from "./pages/Empresas";
+import Empleados      from "./pages/Empleados";
+import Fichajes       from "./pages/Fichajes";
+import Fichar         from "./pages/Fichar";
+import Incidencias    from "./pages/Incidencias";
+import MiHistorial    from "./pages/MiHistorial";
+import CambiarPassword from "./pages/CambiarPassword";
+import InformePDF     from "./pages/InformePDF";
+import Notificaciones from "./components/Notificaciones";
 
 function Layout({ children, rol }) {
   const { perfil, logout } = useAuth();
@@ -24,32 +28,41 @@ function Layout({ children, rol }) {
         <div style={{ flex:1, paddingTop:8 }}>
           {esAdmin && <>
             <div className="nav-section-label">General</div>
-            <NavLink to="/dashboard" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
+            <NavLink to="/dashboard"  className={({isActive})=>"nav-link"+(isActive?" active":"")}>
               <span className="nav-icon">📊</span> Inicio
             </NavLink>
-            <NavLink to="/empresas" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
+            <NavLink to="/empresas"   className={({isActive})=>"nav-link"+(isActive?" active":"")}>
               <span className="nav-icon">🏢</span> Empresas
             </NavLink>
-            <NavLink to="/empleados" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
+            <NavLink to="/empleados"  className={({isActive})=>"nav-link"+(isActive?" active":"")}>
               <span className="nav-icon">👥</span> Empleados
             </NavLink>
             <div className="nav-section-label">Registros</div>
-            <NavLink to="/fichajes" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
+            <NavLink to="/fichajes"   className={({isActive})=>"nav-link"+(isActive?" active":"")}>
               <span className="nav-icon">📋</span> Fichajes
             </NavLink>
             <NavLink to="/incidencias" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
               <span className="nav-icon">⚠️</span> Incidencias
             </NavLink>
+            <NavLink to="/informe-pdf" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
+              <span className="nav-icon">📄</span> Informe PDF
+            </NavLink>
           </>}
           <div className="nav-section-label">Mi jornada</div>
-          <NavLink to="/fichar" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
+          <NavLink to="/fichar"       className={({isActive})=>"nav-link"+(isActive?" active":"")}>
             <span className="nav-icon">👆</span> Fichar
           </NavLink>
-          {!esAdmin && (
-            <NavLink to="/incidencias" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-              <span className="nav-icon">⚠️</span> Incidencias
-            </NavLink>
-          )}
+          <NavLink to="/mi-historial" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
+            <span className="nav-icon">📅</span> Mi historial
+          </NavLink>
+          <NavLink to="/incidencias"  className={({isActive})=>"nav-link"+(isActive?" active":"")}
+            style={esAdmin?{display:"none"}:{}}>
+            <span className="nav-icon">⚠️</span> Incidencias
+          </NavLink>
+          <div className="nav-section-label">Cuenta</div>
+          <NavLink to="/cambiar-password" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
+            <span className="nav-icon">🔑</span> Contraseña
+          </NavLink>
         </div>
         <div style={{ padding:"12px 18px", borderTop:"1px solid rgba(255,255,255,.12)" }}>
           <div style={{ fontSize:12, color:"rgba(255,255,255,.55)", marginBottom:8 }}>
@@ -58,32 +71,39 @@ function Layout({ children, rol }) {
           <button onClick={logout} className="btn" style={{
             width:"100%", justifyContent:"center", fontSize:13,
             background:"rgba(255,255,255,.1)", color:"#fff", borderColor:"rgba(255,255,255,.2)"
-          }}>
-            Cerrar sesión
-          </button>
+          }}>Cerrar sesión</button>
         </div>
       </nav>
 
-      <main className="main-content">{children}</main>
+      <div style={{ flex:1, display:"flex", flexDirection:"column", marginLeft:220 }}>
+        {/* Topbar con notificaciones */}
+        <div style={{ display:"flex", justifyContent:"flex-end", alignItems:"center",
+          padding:"10px 24px", background:"#fff", borderBottom:"1px solid #E5E7EB",
+          position:"sticky", top:0, zIndex:50 }}>
+          <Notificaciones />
+        </div>
+        <main style={{ padding:24, flex:1 }}>{children}</main>
+      </div>
 
+      {/* Nav móvil */}
       <nav className="mobile-nav">
-        {esAdmin && <>
+        {esAdmin && (
           <NavLink to="/dashboard" className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
             <span>📊</span><span>Inicio</span>
           </NavLink>
-          <NavLink to="/fichajes" className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
-            <span>📋</span><span>Fichajes</span>
-          </NavLink>
-        </>}
+        )}
         <NavLink to="/fichar" className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
           <span>👆</span><span>Fichar</span>
+        </NavLink>
+        <NavLink to="/mi-historial" className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
+          <span>📅</span><span>Historial</span>
         </NavLink>
         <NavLink to="/incidencias" className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
           <span>⚠️</span><span>Incidencias</span>
         </NavLink>
         {esAdmin && (
-          <NavLink to="/empleados" className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
-            <span>👥</span><span>Empleados</span>
+          <NavLink to="/fichajes" className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
+            <span>📋</span><span>Fichajes</span>
           </NavLink>
         )}
       </nav>
@@ -94,7 +114,7 @@ function Layout({ children, rol }) {
 function RutaProtegida({ children, soloAdmin }) {
   const { user, perfil, cargando } = useAuth();
   if (cargando) return <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh" }}>Cargando...</div>;
-  if (!user)    return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/login" replace />;
   if (soloAdmin && perfil?.rol === "empleado") return <Navigate to="/fichar" replace />;
   return <Layout rol={perfil?.rol}>{children}</Layout>;
 }
@@ -109,18 +129,17 @@ export default function App() {
     <Routes>
       <Route path="/login" element={!user
         ? <Login />
-        : <Navigate to={perfil?.rol==="empleado" ? "/fichar" : "/dashboard"} />}
-      />
-      <Route path="/dashboard"   element={<RutaProtegida soloAdmin><Dashboard /></RutaProtegida>} />
-      <Route path="/empresas"    element={<RutaProtegida soloAdmin><Empresas /></RutaProtegida>} />
-      <Route path="/empleados"   element={<RutaProtegida soloAdmin><Empleados /></RutaProtegida>} />
-      <Route path="/fichajes"    element={<RutaProtegida soloAdmin><Fichajes /></RutaProtegida>} />
-      <Route path="/incidencias" element={<RutaProtegida><Incidencias /></RutaProtegida>} />
-      <Route path="/fichar"      element={<RutaProtegida><Fichar /></RutaProtegida>} />
-      <Route path="/" element={<Navigate to={user
-        ? (perfil?.rol==="empleado" ? "/fichar" : "/dashboard")
-        : "/login"} />}
-      />
+        : <Navigate to={perfil?.rol==="empleado"?"/fichar":"/dashboard"} />} />
+      <Route path="/dashboard"       element={<RutaProtegida soloAdmin><Dashboard /></RutaProtegida>} />
+      <Route path="/empresas"        element={<RutaProtegida soloAdmin><Empresas /></RutaProtegida>} />
+      <Route path="/empleados"       element={<RutaProtegida soloAdmin><Empleados /></RutaProtegida>} />
+      <Route path="/fichajes"        element={<RutaProtegida soloAdmin><Fichajes /></RutaProtegida>} />
+      <Route path="/incidencias"     element={<RutaProtegida><Incidencias /></RutaProtegida>} />
+      <Route path="/informe-pdf"     element={<RutaProtegida soloAdmin><InformePDF /></RutaProtegida>} />
+      <Route path="/mi-historial"    element={<RutaProtegida><MiHistorial /></RutaProtegida>} />
+      <Route path="/cambiar-password" element={<RutaProtegida><CambiarPassword /></RutaProtegida>} />
+      <Route path="/fichar"          element={<RutaProtegida><Fichar /></RutaProtegida>} />
+      <Route path="/" element={<Navigate to={user?(perfil?.rol==="empleado"?"/fichar":"/dashboard"):"/login"} />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   );
