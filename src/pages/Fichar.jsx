@@ -162,7 +162,10 @@ export default function Fichar() {
   const menuOpciones = [
     { icon:"📅", label:"Mi historial",       ruta:"/mi-historial" },
     { icon:"⚠️", label:"Mis incidencias",    ruta:"/incidencias" },
-    { icon:"🔑", label:"Cambiar contraseña", ruta:"/cambiar-password" },
+    { icon:"🏖️", label:"Vacaciones",          ruta:"/vacaciones" },
+    { icon:"🏥", label:"Enfermedad",           ruta:"/enfermedad" },
+    { icon:"💰", label:"Mis nóminas",          ruta:"/nominas" },
+    { icon:"🔑", label:"Cambiar contraseña",  ruta:"/cambiar-password" },
   ];
 
   return (
