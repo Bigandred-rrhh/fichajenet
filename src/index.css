@@ -190,6 +190,7 @@ body {
 @media (max-width: 768px) {
   .sidebar { display: none; }
   .main-content { margin-left: 0 !important; padding: 14px; }
+  .main-wrapper { margin-left: 0 !important; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
 
   /* Barra inferior solo para admin */

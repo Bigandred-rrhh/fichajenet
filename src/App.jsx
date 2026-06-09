@@ -89,7 +89,7 @@ function Layout({ children, rol }) {
       </nav>
 
       {/* Contenido principal */}
-      <div style={{ flex:1, display:"flex", flexDirection:"column", marginLeft:220 }}
+      <div style={{ flex:1, display:"flex", flexDirection:"column" }}
            className="main-wrapper">
         {/* Topbar con notificaciones — solo en desktop para admin */}
         {esAdmin && (
