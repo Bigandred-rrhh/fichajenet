@@ -34,15 +34,18 @@ export default function Nominas() {
   const cargar = async () => {
     if (!perfil) return;
     try {
+      // Employee query without orderBy to avoid composite index requirement
       const q = esAdmin
         ? query(collection(db,"nominas"), orderBy("creadaEn","desc"))
-        : query(collection(db,"nominas"), where("empleadoId","==",user.uid), orderBy("creadaEn","desc"));
+        : query(collection(db,"nominas"), where("empleadoId","==",user.uid));
       const [nSnap, eSnap, uSnap] = await Promise.all([
         getDocs(q),
         getDocs(collection(db,"empresas")),
         getDocs(collection(db,"usuarios")),
       ]);
-      setNominas(nSnap.docs.map(d=>({id:d.id,...d.data()})));
+      const nLista = nSnap.docs.map(d=>({id:d.id,...d.data()}));
+      if (!esAdmin) nLista.sort((a,b)=>(b.creadaEn?.seconds||0)-(a.creadaEn?.seconds||0));
+      setNominas(nLista);
       setEmpresas(eSnap.docs.map(d=>({id:d.id,...d.data()})));
       setEmpleados(uSnap.docs.map(d=>({id:d.id,...d.data()})).filter(u=>u.rol!=="admin"));
     } catch(e) { console.error(e); showToast("Error cargando datos","error"); }
