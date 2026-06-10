@@ -94,7 +94,7 @@ function Layout({ children, rol }) {
         </div>
       </nav>
 
-      <div className="main-wrapper" style={{ flex:1, display:"flex", flexDirection:"column" }}>
+      <div className="main-wrapper">
         {esAdmin && (
           <div style={{ display:"flex", justifyContent:"flex-end", alignItems:"center",
             padding:"10px 24px", background:"#fff", borderBottom:"1px solid #E5E7EB",
@@ -102,7 +102,7 @@ function Layout({ children, rol }) {
             <Notificaciones />
           </div>
         )}
-        <main className="main-content" style={{ marginLeft:0 }}>{children}</main>
+        <main className="main-content">{children}</main>
       </div>
 
       {esAdmin && (
