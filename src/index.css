@@ -59,7 +59,8 @@ body {
   text-transform: uppercase;
 }
 
-.main-content { margin-left: 220px; flex: 1; padding: 24px; }
+.main-content { flex: 1; padding: 24px; }
+.main-wrapper { margin-left: 220px; }
 
 /* ── TARJETAS ── */
 .card {

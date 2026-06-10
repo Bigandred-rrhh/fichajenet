@@ -8,8 +8,6 @@ import { db } from "../lib/firebase";
 import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/useToast";
 import { crearNotificacion } from "../lib/notificaciones";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
 
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
   "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -22,13 +20,14 @@ export default function Nominas() {
   const { showToast, ToastUI } = useToast();
   const esAdmin = perfil?.rol === "admin" || perfil?.rol === "rrhh";
 
-  const [nominas,   setNominas]   = useState([]);
-  const [empleados, setEmpleados] = useState([]);
-  const [empresas,  setEmpresas]  = useState([]);
-  const [modal,     setModal]     = useState(false);
-  const [form,      setForm]      = useState(VACIA);
-  const [guardando, setGuardando] = useState(false);
-  const [filtroEmp, setFiltroEmp] = useState("");
+  const [nominas,    setNominas]    = useState([]);
+  const [empleados,  setEmpleados]  = useState([]);
+  const [empresas,   setEmpresas]   = useState([]);
+  const [modal,      setModal]      = useState(false);
+  const [form,       setForm]       = useState(VACIA);
+  const [guardando,  setGuardando]  = useState(false);
+  const [filtroEmp,  setFiltroEmp]  = useState("");
+  const [filtroEmpresa, setFiltroEmpresa] = useState("");
 
   useEffect(() => { cargar(); }, [perfil]);
 
@@ -41,19 +40,32 @@ export default function Nominas() {
       const [nSnap, eSnap, uSnap] = await Promise.all([
         getDocs(q),
         getDocs(collection(db,"empresas")),
-        esAdmin ? getDocs(collection(db,"usuarios")) : Promise.resolve({docs:[]}),
+        getDocs(collection(db,"usuarios")),
       ]);
       setNominas(nSnap.docs.map(d=>({id:d.id,...d.data()})));
       setEmpresas(eSnap.docs.map(d=>({id:d.id,...d.data()})));
-      setEmpleados(uSnap.docs.map(d=>({id:d.id,...d.data()})));
-    } catch(e) { console.error(e); }
+      setEmpleados(uSnap.docs.map(d=>({id:d.id,...d.data()})).filter(u=>u.rol!=="admin"));
+    } catch(e) { console.error(e); showToast("Error cargando datos","error"); }
+  };
+
+  // Empleados filtrados por empresa seleccionada en el modal
+  const empleadosFiltrados = form.empresaId
+    ? empleados.filter(e=>e.empresaId===form.empresaId)
+    : empleados;
+
+  const onEmpresaModalChange = (empresaId) => {
+    const empresa = empresas.find(e=>e.id===empresaId);
+    setForm(f=>({...f, empresaId, empresaNombre:empresa?.nombre||"", empleadoId:"", empleadoNombre:""}));
   };
 
   const onEmpleadoChange = (uid) => {
     const emp = empleados.find(e=>e.id===uid);
     const empresa = empresas.find(e=>e.id===emp?.empresaId);
-    setForm(f=>({...f, empleadoId:uid, empleadoNombre:emp?.nombre||"",
-      empresaId:emp?.empresaId||"", empresaNombre:empresa?.nombre||""}));
+    setForm(f=>({...f,
+      empleadoId:uid, empleadoNombre:emp?.nombre||"",
+      empresaId: emp?.empresaId||f.empresaId,
+      empresaNombre: empresa?.nombre||f.empresaNombre
+    }));
   };
 
   const guardar = async () => {
@@ -73,15 +85,14 @@ export default function Nominas() {
         linkDrive: form.linkDrive,
         creadaEn: Timestamp.now(), creadaPor: perfil.nombre,
       });
-      // Notificar al empleado
       await crearNotificacion({
         usuarioId: form.empleadoId,
         titulo: "Nueva nómina disponible 📄",
-        mensaje: `Tu nómina de ${form.mes} ${form.anyo} ya está disponible. Puedes descargarla desde la sección Nóminas.`,
+        mensaje: `Tu nómina de ${form.mes} ${form.anyo} ya está disponible en la sección Nóminas.`,
         tipo: "info",
       });
       showToast("Nómina añadida y empleado notificado","success");
-      setModal(false); cargar();
+      setModal(false); setForm(VACIA); cargar();
     } catch(e) { showToast("Error: "+e.message,"error"); }
     setGuardando(false);
   };
@@ -92,12 +103,20 @@ export default function Nominas() {
     showToast("Nómina eliminada","success"); cargar();
   };
 
-  const lista = filtroEmp ? nominas.filter(n=>n.empleadoId===filtroEmp) : nominas;
+  // Filtros para la tabla admin
+  let lista = nominas;
+  if (filtroEmpresa) lista = lista.filter(n=>n.empresaId===filtroEmpresa);
+  if (filtroEmp)     lista = lista.filter(n=>n.empleadoId===filtroEmp);
 
-  // Agrupar por año para el empleado
-  const porAnyo = lista.reduce((acc, n) => {
-    const key = n.anyo || "—";
-    if (!acc[key]) acc[key] = [];
+  // Empleados disponibles para filtro de tabla (según empresa seleccionada)
+  const empleadosParaFiltro = filtroEmpresa
+    ? empleados.filter(e=>e.empresaId===filtroEmpresa)
+    : empleados;
+
+  // Agrupado por año para vista empleado
+  const porAnyo = lista.reduce((acc,n) => {
+    const key = n.anyo||"—";
+    if (!acc[key]) acc[key]=[];
     acc[key].push(n);
     return acc;
   }, {});
@@ -106,26 +125,40 @@ export default function Nominas() {
     <div>
       {ToastUI}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-        <h1 style={{ fontSize:22, fontWeight:700 }}>
-          {esAdmin ? "Gestión de nóminas" : "Mis nóminas"}
-        </h1>
-        <div style={{ display:"flex", gap:10 }}>
-          {esAdmin && (
-            <select className="form-input form-select" style={{ width:"auto" }}
-              value={filtroEmp} onChange={e=>setFiltroEmp(e.target.value)}>
-              <option value="">Todos los empleados</option>
-              {empleados.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
-            </select>
-          )}
-          {esAdmin && (
-            <button className="btn btn-primary" onClick={()=>{ setForm(VACIA); setModal(true); }}>
-              + Subir nómina
-            </button>
-          )}
-        </div>
+        <h1 style={{ fontSize:22, fontWeight:700 }}>{esAdmin?"Gestión de nóminas":"Mis nóminas"}</h1>
+        {esAdmin && (
+          <button className="btn btn-primary" onClick={()=>{ setForm(VACIA); setModal(true); }}>
+            + Subir nómina
+          </button>
+        )}
       </div>
 
-      {/* Vista empleado: agrupado por año */}
+      {/* Filtros admin */}
+      {esAdmin && (
+        <div className="card" style={{ marginBottom:16, padding:"14px 18px" }}>
+          <div style={{ display:"flex", gap:12, flexWrap:"wrap", alignItems:"flex-end" }}>
+            <div>
+              <label className="form-label" style={{ marginBottom:4 }}>Empresa</label>
+              <select className="form-input form-select" style={{ width:220 }}
+                value={filtroEmpresa} onChange={e=>{ setFiltroEmpresa(e.target.value); setFiltroEmp(""); }}>
+                <option value="">Todas las empresas</option>
+                {empresas.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="form-label" style={{ marginBottom:4 }}>Empleado</label>
+              <select className="form-input form-select" style={{ width:220 }}
+                value={filtroEmp} onChange={e=>setFiltroEmp(e.target.value)}>
+                <option value="">Todos los empleados</option>
+                {empleadosParaFiltro.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+              </select>
+            </div>
+            <span className="badge badge-blue">{lista.length} nóminas</span>
+          </div>
+        </div>
+      )}
+
+      {/* Vista empleado */}
       {!esAdmin && (
         <div>
           {Object.keys(porAnyo).length === 0 && (
@@ -135,37 +168,24 @@ export default function Nominas() {
               <div style={{ fontSize:13, marginTop:6 }}>Tu empresa las publicará aquí cuando estén listas</div>
             </div>
           )}
-          {Object.keys(porAnyo).sort((a,b)=>b-a).map(anyo => (
+          {Object.keys(porAnyo).sort((a,b)=>b-a).map(anyo=>(
             <div key={anyo} style={{ marginBottom:20 }}>
               <div style={{ fontWeight:600, fontSize:16, color:"#1B3A6B", marginBottom:10 }}>{anyo}</div>
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(200px,1fr))", gap:10 }}>
-                {porAnyo[anyo].map(n => (
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:10 }}>
+                {porAnyo[anyo].map(n=>(
                   <a key={n.id} href={n.linkDrive} target="_blank" rel="noopener noreferrer"
                     style={{ textDecoration:"none" }}>
-                    <div style={{
-                      background:"#fff", border:"1px solid #E5E7EB", borderRadius:10,
-                      padding:"16px", display:"flex", flexDirection:"column", gap:6,
-                      transition:"box-shadow .15s", cursor:"pointer"
-                    }}
+                    <div style={{ background:"#fff", border:"1px solid #E5E7EB", borderRadius:10,
+                      padding:16, textAlign:"center", cursor:"pointer",
+                      transition:"box-shadow .15s" }}
                       onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 12px rgba(0,0,0,.1)"}
-                      onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}
-                    >
-                      <div style={{ fontSize:28, textAlign:"center" }}>📄</div>
-                      <div style={{ fontWeight:600, textAlign:"center", color:"#1B3A6B" }}>
-                        {n.mes}
-                      </div>
-                      <div style={{ fontSize:12, color:"#6B7280", textAlign:"center" }}>
-                        {n.empresaNombre}
-                      </div>
-                      {n.descripcion && (
-                        <div style={{ fontSize:11, color:"#9CA3AF", textAlign:"center" }}>
-                          {n.descripcion}
-                        </div>
-                      )}
+                      onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
+                      <div style={{ fontSize:32, marginBottom:8 }}>📄</div>
+                      <div style={{ fontWeight:600, color:"#1B3A6B" }}>{n.mes}</div>
+                      <div style={{ fontSize:12, color:"#6B7280", marginTop:2 }}>{n.empresaNombre}</div>
+                      {n.descripcion&&<div style={{ fontSize:11, color:"#9CA3AF", marginTop:2 }}>{n.descripcion}</div>}
                       <div style={{ background:"#EBF2FB", borderRadius:6, padding:"4px 8px",
-                        fontSize:12, color:"#2E5FA3", textAlign:"center", marginTop:4 }}>
-                        ⬇ Descargar
-                      </div>
+                        fontSize:12, color:"#2E5FA3", marginTop:8 }}>⬇ Descargar</div>
                     </div>
                   </a>
                 ))}
@@ -175,7 +195,7 @@ export default function Nominas() {
         </div>
       )}
 
-      {/* Vista admin: tabla */}
+      {/* Vista admin - tabla */}
       {esAdmin && (
         <div className="card">
           <table className="tabla">
@@ -188,19 +208,16 @@ export default function Nominas() {
                   No hay nóminas
                 </td></tr>
               )}
-              {lista.map(n => (
+              {lista.map(n=>(
                 <tr key={n.id}>
                   <td style={{ fontWeight:500 }}>{n.empleadoNombre}</td>
                   <td style={{ fontSize:13, color:"#6B7280" }}>{n.empresaNombre}</td>
-                  <td>{n.mes}</td>
-                  <td>{n.anyo}</td>
+                  <td>{n.mes}</td><td>{n.anyo}</td>
                   <td style={{ fontSize:13, color:"#6B7280" }}>{n.descripcion||"—"}</td>
                   <td>
                     <div style={{ display:"flex", gap:6 }}>
                       <a href={n.linkDrive} target="_blank" rel="noopener noreferrer">
-                        <button className="btn btn-primary" style={{ padding:"4px 9px", fontSize:12 }}>
-                          ⬇ Ver
-                        </button>
+                        <button className="btn btn-primary" style={{ padding:"4px 9px", fontSize:12 }}>⬇ Ver</button>
                       </a>
                       <button className="btn btn-red" style={{ padding:"4px 9px", fontSize:12 }}
                         onClick={()=>eliminar(n.id)}>🗑</button>
@@ -218,17 +235,31 @@ export default function Nominas() {
         <div className="modal-overlay" onClick={()=>setModal(false)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
             <div className="modal-title">Subir nómina</div>
+
             <div className="form-group">
-              <label className="form-label">Empleado *</label>
-              <select className="form-input form-select" value={form.empleadoId} onChange={e=>onEmpleadoChange(e.target.value)}>
-                <option value="">Selecciona empleado...</option>
-                {empleados.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+              <label className="form-label">Empresa *</label>
+              <select className="form-input form-select" value={form.empresaId}
+                onChange={e=>onEmpresaModalChange(e.target.value)}>
+                <option value="">Selecciona empresa...</option>
+                {empresas.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
               </select>
             </div>
+
+            <div className="form-group">
+              <label className="form-label">Empleado *</label>
+              <select className="form-input form-select" value={form.empleadoId}
+                onChange={e=>onEmpleadoChange(e.target.value)}
+                disabled={!form.empresaId}>
+                <option value="">{form.empresaId ? "Selecciona empleado..." : "Primero selecciona empresa"}</option>
+                {empleadosFiltrados.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
+              </select>
+            </div>
+
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
               <div className="form-group">
                 <label className="form-label">Mes *</label>
-                <select className="form-input form-select" value={form.mes} onChange={e=>setForm({...form, mes:e.target.value})}>
+                <select className="form-input form-select" value={form.mes}
+                  onChange={e=>setForm({...form, mes:e.target.value})}>
                   <option value="">Selecciona mes...</option>
                   {MESES.map(m=><option key={m} value={m}>{m}</option>)}
                 </select>
@@ -236,27 +267,32 @@ export default function Nominas() {
               <div className="form-group">
                 <label className="form-label">Año *</label>
                 <input className="form-input" type="number" value={form.anyo}
-                  onChange={e=>setForm({...form, anyo:e.target.value})} min={2020} max={2030} />
+                  onChange={e=>setForm({...form, anyo:e.target.value})} min={2020} max={2035} />
               </div>
             </div>
+
             <div className="form-group">
               <label className="form-label">Link de Google Drive *</label>
               <input className="form-input" type="url" value={form.linkDrive}
                 onChange={e=>setForm({...form, linkDrive:e.target.value})}
                 placeholder="https://drive.google.com/file/d/..." />
-              <small style={{ color:"#9CA3AF", fontSize:12 }}>
-                Sube el PDF a Google Drive → clic derecho → Obtener enlace → "Cualquier persona con el enlace" → Copiar enlace
+              <small style={{ color:"#9CA3AF", fontSize:12, display:"block", marginTop:4 }}>
+                Drive → clic derecho en el PDF → Compartir → "Cualquier persona con el enlace" → Copiar enlace
               </small>
             </div>
+
             <div className="form-group">
               <label className="form-label">Descripción (opcional)</label>
               <input className="form-input" value={form.descripcion}
                 onChange={e=>setForm({...form, descripcion:e.target.value})}
                 placeholder="Ej: Nómina ordinaria, con bonus..." />
             </div>
-            <div style={{ background:"#E1F5EE", borderRadius:8, padding:"10px 12px", fontSize:13, color:"#0F6E56", marginBottom:16 }}>
-              ✓ El empleado recibirá una notificación automática cuando guardes.
+
+            <div style={{ background:"#E1F5EE", borderRadius:8, padding:"10px 12px",
+              fontSize:13, color:"#0F6E56", marginBottom:16 }}>
+              ✓ El empleado recibirá una notificación automática al guardar.
             </div>
+
             <div className="modal-actions">
               <button className="btn" onClick={()=>setModal(false)}>Cancelar</button>
               <button className="btn btn-primary" onClick={guardar} disabled={guardando}>
