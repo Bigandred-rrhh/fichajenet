@@ -51,7 +51,7 @@ export default function Notificaciones() {
 
       {abierto && (
         <div style={{
-          position:"absolute", left:"50%", transform:"translateX(-50%)", top:"calc(100% + 8px)", width:290,
+          position:"fixed", top:70, left:8, right:8, width:"auto",
           background:"#fff", borderRadius:12, boxShadow:"0 8px 30px rgba(0,0,0,.15)",
           border:"1px solid #E5E7EB", zIndex:999, overflow:"hidden"
         }}>
