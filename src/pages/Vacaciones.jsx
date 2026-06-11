@@ -42,17 +42,16 @@ export default function Vacaciones() {
       const q = esAdmin
         ? query(collection(db,"vacaciones"), orderBy("creadaEn","desc"))
         : query(collection(db,"vacaciones"), where("empleadoId","==",user.uid));
-      const [vSnap, eSnap, uSnap] = await Promise.all([
-        getDocs(q),
-        getDocs(collection(db,"empresas")),
-        getDocs(collection(db,"usuarios")),
-      ]);
+      const queries = [getDocs(q), getDocs(collection(db,"empresas"))];
+      if (esAdmin) queries.push(getDocs(collection(db,"usuarios")));
+      const results = await Promise.all(queries);
+      const [vSnap, eSnap] = results;
+      const uSnap = esAdmin ? results[2] : null;
       const vLista = vSnap.docs.map(d=>({id:d.id,...d.data()}));
-      // Sort client-side for employee (avoids composite index)
       if (!esAdmin) vLista.sort((a,b)=>(b.creadaEn?.seconds||0)-(a.creadaEn?.seconds||0));
       setSolicitudes(vLista);
       setEmpresas(eSnap.docs.map(d=>({id:d.id,...d.data()})));
-      const usuarios = uSnap.docs.map(d=>({id:d.id,...d.data()}));
+      const usuarios = uSnap ? uSnap.docs.map(d=>({id:d.id,...d.data()})) : [];
       setEmpleados(usuarios.filter(u=>u.rol!=="admin"));
       setAdmins(usuarios.filter(u=>u.rol==="admin"||u.rol==="rrhh"));
     } catch(e) { console.error(e); showToast("Error cargando datos","error"); }
