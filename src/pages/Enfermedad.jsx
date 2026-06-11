@@ -38,7 +38,6 @@ export default function Enfermedad() {
   const cargar = async () => {
     if (!perfil) return;
     try {
-      // Sin orderBy compuesto para empleado — evita índice
       const q = esAdmin
         ? query(collection(db,"enfermedades"), orderBy("creadaEn","desc"))
         : query(collection(db,"enfermedades"), where("empleadoId","==",user.uid));
@@ -100,11 +99,10 @@ export default function Enfermedad() {
       } else {
         await addDoc(collection(db,"enfermedades"),datos);
         showToast("Ausencia reportada correctamente","success");
-        // Notificar a todos los admins
         await Promise.all(admins.map(a=>crearNotificacion({
           usuarioId:a.id,
           titulo:"Nueva ausencia por enfermedad 🏥",
-          mensaje:`${perfil.nombre} ha reportado una ausencia: ${form.tipo} desde el ${form.fechaInicio}.`,
+          mensaje:`${perfil.nombre} ha reportado: ${form.tipo} desde el ${form.fechaInicio}.`,
           tipo:"warning",
         })));
       }
@@ -119,12 +117,11 @@ export default function Enfermedad() {
       usuarioId:baja.empleadoId,
       titulo:`Ausencia ${estado==="confirmada"?"confirmada ✓":"resuelta ✓"}`,
       mensaje:estado==="confirmada"
-        ?`Tu ausencia por ${baja.tipo} desde el ${baja.fechaInicio} ha sido confirmada. No necesitas fichar durante este período.`
-        :`Tu ausencia por ${baja.tipo} ha sido marcada como resuelta. Ya puedes fichar normalmente.`,
+        ?`Tu ausencia por ${baja.tipo} desde el ${baja.fechaInicio} ha sido confirmada. No necesitas fichar.`
+        :`Tu ausencia por ${baja.tipo} ha sido resuelta. Ya puedes fichar normalmente.`,
       tipo:"info",
     });
-    showToast(`Baja ${estado}`,"success");
-    cargar();
+    showToast(`Baja ${estado}`,"success"); cargar();
   };
 
   const eliminar = async (id) => {
@@ -138,44 +135,53 @@ export default function Enfermedad() {
   return (
     <div>
       {ToastUI}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
         <div>
           <h1 style={{fontSize:22,fontWeight:700}}>Enfermedad y ausencias</h1>
-          {reportadas>0&&esAdmin&&<span style={{fontSize:13,color:"#BA7517"}}>⚠ {reportadas} ausencia{reportadas>1?"s":""} por revisar</span>}
+          {reportadas>0&&esAdmin&&<span style={{fontSize:13,color:"#BA7517"}}>⚠ {reportadas} por revisar</span>}
         </div>
-        <button className="btn btn-primary" onClick={()=>abrir(null)}>+ Reportar ausencia</button>
+        <button className="btn btn-primary" onClick={()=>abrir(null)} style={{fontSize:13}}>+ Reportar ausencia</button>
       </div>
-      <div className="card">
-        <table className="tabla">
-          <thead>
-            <tr><th>Empleado</th>{esAdmin&&<th>Empresa</th>}<th>Tipo</th><th>Desde</th><th>Hasta</th><th>Estado</th><th>Acciones</th></tr>
-          </thead>
-          <tbody>
-            {bajas.length===0&&<tr><td colSpan={esAdmin?7:6} style={{textAlign:"center",color:"#9CA3AF",padding:24}}>Sin registros</td></tr>}
-            {bajas.map(b=>(
-              <tr key={b.id}>
-                <td style={{fontWeight:500}}>{b.empleadoNombre}</td>
-                {esAdmin&&<td style={{fontSize:13,color:"#6B7280"}}>{b.empresaNombre}</td>}
-                <td style={{fontSize:13}}>{b.tipo}</td>
-                <td>{b.fechaInicio}</td><td>{b.fechaFin||"—"}</td>
-                <td><span className={`badge ${ESTADOS[b.estado]?.clase||"badge-gray"}`}>{ESTADOS[b.estado]?.label||b.estado}</span></td>
-                <td>
-                  <div style={{display:"flex",gap:6}}>
-                    <button className="btn" style={{padding:"4px 9px",fontSize:12}} onClick={()=>abrir(b)}>{esAdmin?"✏ Editar":"Ver"}</button>
-                    {esAdmin&&b.estado==="reportada"&&<button className="btn btn-primary" style={{padding:"4px 9px",fontSize:12}} onClick={()=>cambiarEstado(b,"confirmada")}>Confirmar</button>}
-                    {esAdmin&&b.estado==="confirmada"&&<button className="btn btn-green" style={{padding:"4px 9px",fontSize:12}} onClick={()=>cambiarEstado(b,"resuelta")}>Resolver</button>}
-                    {esAdmin&&<button className="btn btn-red" style={{padding:"4px 9px",fontSize:12}} onClick={()=>eliminar(b.id)}>🗑</button>}
+
+      {bajas.length === 0 ? (
+        <div className="card" style={{textAlign:"center",padding:32,color:"#9CA3AF"}}>Sin registros</div>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {bajas.map(b=>(
+            <div key={b.id} className="card" style={{padding:"14px 16px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:600,fontSize:15}}>{b.empleadoNombre}</div>
+                  {esAdmin&&<div style={{fontSize:12,color:"#6B7280"}}>{b.empresaNombre}</div>}
+                  <div style={{fontSize:13,color:"#374151",marginTop:4}}>
+                    🏥 {b.tipo}
                   </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                  <div style={{fontSize:13,color:"#6B7280",marginTop:2}}>
+                    {b.fechaInicio}{b.fechaFin?" → "+b.fechaFin:""}
+                  </div>
+                  {b.descripcion&&<div style={{fontSize:12,color:"#9CA3AF",marginTop:2}}>{b.descripcion}</div>}
+                </div>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
+                  <span className={`badge ${ESTADOS[b.estado]?.clase||"badge-gray"}`}>
+                    {ESTADOS[b.estado]?.label||b.estado}
+                  </span>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                    <button className="btn" style={{padding:"4px 10px",fontSize:12}} onClick={()=>abrir(b)}>{esAdmin?"✏ Editar":"Ver"}</button>
+                    {esAdmin&&b.estado==="reportada"&&<button className="btn btn-primary" style={{padding:"4px 10px",fontSize:12}} onClick={()=>cambiarEstado(b,"confirmada")}>Confirmar</button>}
+                    {esAdmin&&b.estado==="confirmada"&&<button className="btn btn-green" style={{padding:"4px 10px",fontSize:12}} onClick={()=>cambiarEstado(b,"resuelta")}>Resolver</button>}
+                    {esAdmin&&<button className="btn btn-red" style={{padding:"4px 10px",fontSize:12}} onClick={()=>eliminar(b.id)}>🗑</button>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {modal&&(
         <div className="modal-overlay" onClick={()=>setModal(false)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">{editId?"Editar ausencia":"Reportar ausencia por enfermedad"}</div>
+            <div className="modal-title">{editId?"Editar ausencia":"Reportar ausencia"}</div>
             {esAdmin?(
               <div className="form-group">
                 <label className="form-label">Empleado *</label>
@@ -191,7 +197,7 @@ export default function Enfermedad() {
               </div>
             )}
             <div className="form-group">
-              <label className="form-label">Tipo de ausencia *</label>
+              <label className="form-label">Tipo *</label>
               <select className="form-input form-select" value={form.tipo} onChange={e=>setForm({...form,tipo:e.target.value})}>
                 {TIPOS.map(t=><option key={t} value={t}>{t}</option>)}
               </select>
@@ -203,7 +209,7 @@ export default function Enfermedad() {
                   onChange={e=>setForm({...form,fechaInicio:e.target.value})}/>
               </div>
               <div className="form-group">
-                <label className="form-label">Fecha fin (si se conoce)</label>
+                <label className="form-label">Fecha fin</label>
                 <input className="form-input" type="date" value={form.fechaFin}
                   onChange={e=>setForm({...form,fechaFin:e.target.value})}/>
               </div>
@@ -225,7 +231,7 @@ export default function Enfermedad() {
               </div>
             )}
             <div style={{background:"#EBF2FB",borderRadius:8,padding:"10px 12px",fontSize:13,color:"#2E5FA3",marginBottom:16}}>
-              ℹ Durante el período de ausencia confirmada no será necesario fichar.
+              ℹ Durante ausencia confirmada no es necesario fichar.
             </div>
             <div className="modal-actions">
               <button className="btn" onClick={()=>setModal(false)}>Cancelar</button>
