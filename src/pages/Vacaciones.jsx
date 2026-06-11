@@ -38,7 +38,6 @@ export default function Vacaciones() {
   const cargar = async () => {
     if (!perfil) return;
     try {
-      // Empleado: sin orderBy compuesto para evitar índice
       const q = esAdmin
         ? query(collection(db,"vacaciones"), orderBy("creadaEn","desc"))
         : query(collection(db,"vacaciones"), where("empleadoId","==",user.uid));
@@ -109,7 +108,6 @@ export default function Vacaciones() {
       } else {
         await addDoc(collection(db,"vacaciones"),datos);
         showToast("Solicitud enviada correctamente","success");
-        // Notificar a todos los admins
         await Promise.all(admins.map(a=>crearNotificacion({
           usuarioId:a.id,
           titulo:"Nueva solicitud de vacaciones 🏖️",
@@ -132,8 +130,7 @@ export default function Vacaciones() {
         :`Tu solicitud de vacaciones del ${sol.fechaInicio} al ${sol.fechaFin} ha sido rechazada.`,
       tipo:estado==="aprobada"?"success":"error",
     });
-    showToast(`Vacaciones ${estado}`,"success");
-    cargar();
+    showToast(`Vacaciones ${estado}`,"success"); cargar();
   };
 
   const eliminar = async (id) => {
@@ -142,57 +139,67 @@ export default function Vacaciones() {
     showToast("Solicitud eliminada","success"); cargar();
   };
 
-  const lista=filtro?solicitudes.filter(s=>s.estado===filtro):solicitudes;
-  const pendientes=solicitudes.filter(s=>s.estado==="pendiente").length;
+  const lista = filtro ? solicitudes.filter(s=>s.estado===filtro) : solicitudes;
+  const pendientes = solicitudes.filter(s=>s.estado==="pendiente").length;
 
   return (
     <div>
       {ToastUI}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
         <div>
           <h1 style={{fontSize:22,fontWeight:700}}>Vacaciones</h1>
-          {pendientes>0&&esAdmin&&<span style={{fontSize:13,color:"#BA7517"}}>⚠ {pendientes} solicitud{pendientes>1?"es":""} pendiente{pendientes>1?"s":""}</span>}
+          {pendientes>0&&esAdmin&&<span style={{fontSize:13,color:"#BA7517"}}>⚠ {pendientes} pendiente{pendientes>1?"s":""}</span>}
         </div>
-        <div style={{display:"flex",gap:10}}>
-          <select className="form-input form-select" style={{width:"auto"}}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <select className="form-input form-select" style={{width:"auto",fontSize:13}}
             value={filtro} onChange={e=>setFiltro(e.target.value)}>
-            <option value="">Todos los estados</option>
+            <option value="">Todos</option>
             <option value="pendiente">Pendientes</option>
             <option value="aprobada">Aprobadas</option>
             <option value="rechazada">Rechazadas</option>
           </select>
-          <button className="btn btn-primary" onClick={()=>abrir(null)}>+ Solicitar vacaciones</button>
+          <button className="btn btn-primary" onClick={()=>abrir(null)} style={{fontSize:13}}>+ Solicitar</button>
         </div>
       </div>
-      <div className="card">
-        <table className="tabla">
-          <thead>
-            <tr><th>Empleado</th>{esAdmin&&<th>Empresa</th>}<th>Desde</th><th>Hasta</th><th>Días</th><th>Estado</th><th>Acciones</th></tr>
-          </thead>
-          <tbody>
-            {lista.length===0&&<tr><td colSpan={esAdmin?7:6} style={{textAlign:"center",color:"#9CA3AF",padding:24}}>No hay solicitudes</td></tr>}
-            {lista.map(s=>(
-              <tr key={s.id}>
-                <td style={{fontWeight:500}}>{s.empleadoNombre}</td>
-                {esAdmin&&<td style={{fontSize:13,color:"#6B7280"}}>{s.empresaNombre}</td>}
-                <td>{s.fechaInicio}</td><td>{s.fechaFin}</td>
-                <td><span className="badge badge-blue">{s.dias}d</span></td>
-                <td><span className={`badge ${ESTADOS[s.estado]?.clase||"badge-gray"}`}>{ESTADOS[s.estado]?.label||s.estado}</span></td>
-                <td>
-                  <div style={{display:"flex",gap:6}}>
-                    <button className="btn" style={{padding:"4px 9px",fontSize:12}} onClick={()=>abrir(s)}>{esAdmin?"✏ Editar":"Ver"}</button>
-                    {esAdmin&&s.estado==="pendiente"&&<>
-                      <button className="btn btn-green" style={{padding:"4px 9px",fontSize:12}} onClick={()=>cambiarEstado(s,"aprobada")}>✓</button>
-                      <button className="btn btn-red" style={{padding:"4px 9px",fontSize:12}} onClick={()=>cambiarEstado(s,"rechazada")}>✗</button>
-                    </>}
-                    {esAdmin&&<button className="btn btn-red" style={{padding:"4px 9px",fontSize:12}} onClick={()=>eliminar(s.id)}>🗑</button>}
+
+      {/* Vista tarjetas — funciona bien en móvil y escritorio */}
+      {lista.length === 0 ? (
+        <div className="card" style={{textAlign:"center",padding:32,color:"#9CA3AF"}}>No hay solicitudes</div>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {lista.map(s=>(
+            <div key={s.id} className="card" style={{padding:"14px 16px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:600,fontSize:15}}>{s.empleadoNombre}</div>
+                  {esAdmin&&<div style={{fontSize:12,color:"#6B7280",marginBottom:4}}>{s.empresaNombre}</div>}
+                  <div style={{fontSize:13,color:"#374151",marginTop:4}}>
+                    📅 {s.fechaInicio} → {s.fechaFin}
+                    <span className="badge badge-blue" style={{marginLeft:8}}>{s.dias}d</span>
                   </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                  {s.motivo&&<div style={{fontSize:12,color:"#6B7280",marginTop:4}}>{s.motivo}</div>}
+                </div>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
+                  <span className={`badge ${ESTADOS[s.estado]?.clase||"badge-gray"}`}>
+                    {ESTADOS[s.estado]?.label||s.estado}
+                  </span>
+                  <div style={{display:"flex",gap:6}}>
+                    <button className="btn" style={{padding:"4px 10px",fontSize:12}} onClick={()=>abrir(s)}>
+                      {esAdmin?"✏ Editar":"Ver"}
+                    </button>
+                    {esAdmin&&s.estado==="pendiente"&&<>
+                      <button className="btn btn-green" style={{padding:"4px 10px",fontSize:12}} onClick={()=>cambiarEstado(s,"aprobada")}>✓</button>
+                      <button className="btn btn-red" style={{padding:"4px 10px",fontSize:12}} onClick={()=>cambiarEstado(s,"rechazada")}>✗</button>
+                    </>}
+                    {esAdmin&&<button className="btn btn-red" style={{padding:"4px 10px",fontSize:12}} onClick={()=>eliminar(s.id)}>🗑</button>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {modal&&(
         <div className="modal-overlay" onClick={()=>setModal(false)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
@@ -232,7 +239,7 @@ export default function Vacaciones() {
               <label className="form-label">Motivo (opcional)</label>
               <textarea className="form-input" rows={2} value={form.motivo}
                 onChange={e=>setForm({...form,motivo:e.target.value})}
-                placeholder="Vacaciones de verano, asunto personal..." style={{resize:"vertical"}}/>
+                placeholder="Vacaciones de verano..." style={{resize:"vertical"}}/>
             </div>
             {esAdmin&&(
               <div className="form-group">
