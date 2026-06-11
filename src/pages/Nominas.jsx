@@ -38,16 +38,16 @@ export default function Nominas() {
       const q = esAdmin
         ? query(collection(db,"nominas"), orderBy("creadaEn","desc"))
         : query(collection(db,"nominas"), where("empleadoId","==",user.uid));
-      const [nSnap, eSnap, uSnap] = await Promise.all([
-        getDocs(q),
-        getDocs(collection(db,"empresas")),
-        getDocs(collection(db,"usuarios")),
-      ]);
+      const queries = [getDocs(q), getDocs(collection(db,"empresas"))];
+      if (esAdmin) queries.push(getDocs(collection(db,"usuarios")));
+      const results = await Promise.all(queries);
+      const [nSnap, eSnap] = results;
+      const uSnap = esAdmin ? results[2] : null;
       const nLista = nSnap.docs.map(d=>({id:d.id,...d.data()}));
       if (!esAdmin) nLista.sort((a,b)=>(b.creadaEn?.seconds||0)-(a.creadaEn?.seconds||0));
       setNominas(nLista);
       setEmpresas(eSnap.docs.map(d=>({id:d.id,...d.data()})));
-      setEmpleados(uSnap.docs.map(d=>({id:d.id,...d.data()})).filter(u=>u.rol!=="admin"));
+      setEmpleados(uSnap ? uSnap.docs.map(d=>({id:d.id,...d.data()})).filter(u=>u.rol!=="admin") : []);
     } catch(e) { console.error(e); showToast("Error cargando datos","error"); }
   };
 
