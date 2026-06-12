@@ -1,135 +1,303 @@
-// src/components/Notificaciones.jsx
-import React, { useEffect, useState, useRef } from "react";
-import { obtenerNotificaciones, marcarLeida, marcarTodasLeidas } from "../lib/notificaciones";
-import { deleteDoc, doc } from "firebase/firestore";
+// src/pages/Fichar.jsx
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  collection, addDoc, query, where, getDocs,
+  orderBy, Timestamp, doc, getDoc
+} from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuth } from "../lib/AuthContext";
+import { useToast } from "../hooks/useToast";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
+import { useNavigate } from "react-router-dom";
+import Notificaciones from "../components/Notificaciones";
 
-export default function Notificaciones() {
-  const { user } = useAuth();
-  const [notifs,  setNotifs]  = useState([]);
-  const [abierto, setAbierto] = useState(false);
-  const ref = useRef(null);
+function calcularHoras(registros) {
+  let totalMinutos = 0;
+  const lista = [...registros];
+  for (let i = 0; i < lista.length - 1; i++) {
+    if (lista[i].tipo === "entrada" && lista[i+1].tipo === "salida") {
+      const entrada = lista[i].timestamp?.toDate?.() || new Date();
+      const salida  = lista[i+1].timestamp?.toDate?.() || new Date();
+      totalMinutos += Math.round((salida - entrada) / 60000);
+      i++;
+    }
+  }
+  if (totalMinutos <= 0) return null;
+  const h = Math.floor(totalMinutos / 60);
+  const m = totalMinutos % 60;
+  return `${h}h ${String(m).padStart(2,"0")}m`;
+}
 
-  const cargar = async () => {
-    if (!user) return;
-    const lista = await obtenerNotificaciones(user.uid);
-    setNotifs(lista);
-  };
+export default function Fichar() {
+  const { user, perfil, logout } = useAuth();
+  const { showToast, ToastUI } = useToast();
+  const navigate = useNavigate();
+  const [hora, setHora]               = useState(new Date());
+  const [registrosHoy, setRegistros]  = useState([]);
+  const [cargando, setCargando]       = useState(false);
+  const [empresa, setEmpresa]         = useState(null);
+  const [iniciado, setIniciado]       = useState(false);
+  const [tiempoVivo, setTiempoVivo]   = useState(null);
+  const [menuAbierto, setMenuAbierto] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   useEffect(() => {
-    cargar();
-    const t = setInterval(cargar, 30000);
+    const t = setInterval(() => setHora(new Date()), 1000);
     return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    const ultimoTipo = registrosHoy.length
+      ? registrosHoy[registrosHoy.length - 1].tipo : null;
+    if (ultimoTipo !== "entrada") { setTiempoVivo(null); return; }
+    const ultimaEntrada = registrosHoy[registrosHoy.length - 1].timestamp?.toDate?.();
+    if (!ultimaEntrada) return;
+    const calcular = () => {
+      const mins = Math.round((new Date() - ultimaEntrada) / 60000);
+      setTiempoVivo(`${Math.floor(mins/60)}h ${String(mins%60).padStart(2,"0")}m`);
+    };
+    calcular();
+    const t = setInterval(calcular, 10000);
+    return () => clearInterval(t);
+  }, [registrosHoy]);
+
+  const cargarEmpresa = useCallback(async () => {
+    if (!perfil?.empresaId) return;
+    try {
+      const snap = await getDoc(doc(db, "empresas", perfil.empresaId));
+      if (snap.exists()) setEmpresa(snap.data());
+    } catch(e) { console.error(e); }
+  }, [perfil]);
+
+  const cargarRegistrosHoy = useCallback(async () => {
+    if (!user) return;
+    try {
+      const hoy = new Date(); hoy.setHours(0,0,0,0);
+      const manana = new Date(hoy); manana.setDate(manana.getDate()+1);
+      const q = query(
+        collection(db, "fichajes"),
+        where("usuarioId", "==", user.uid),
+        where("timestamp", ">=", Timestamp.fromDate(hoy)),
+        where("timestamp", "<",  Timestamp.fromDate(manana)),
+        orderBy("timestamp", "asc")
+      );
+      const snap = await getDocs(q);
+      setRegistros(snap.docs.map(d => ({ id:d.id, ...d.data() })));
+    } catch(e) { console.error(e); }
   }, [user]);
 
   useEffect(() => {
-    const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setAbierto(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+    if (perfil && user && !iniciado) {
+      setIniciado(true);
+      cargarEmpresa();
+      cargarRegistrosHoy();
+    }
+  }, [perfil, user, iniciado, cargarEmpresa, cargarRegistrosHoy]);
 
-  const noLeidas = notifs.filter(n => !n.leida).length;
-
-  const handleMarcarTodas = async () => {
-    await marcarTodasLeidas(user.uid);
-    cargar();
+  const registrar = async (tipo) => {
+    if (cargando) return;
+    setCargando(true);
+    try {
+      const ahora = new Date();
+      let horasDia = null;
+      if (tipo === "salida" && registrosHoy.length > 0) {
+        const ultima = registrosHoy[registrosHoy.length-1].timestamp?.toDate?.();
+        if (ultima) {
+          let totalMins = 0;
+          const lista = [...registrosHoy];
+          for (let i = 0; i < lista.length-1; i++) {
+            if (lista[i].tipo==="entrada" && lista[i+1].tipo==="salida") {
+              const e = lista[i].timestamp?.toDate?.();
+              const s = lista[i+1].timestamp?.toDate?.();
+              if (e && s) totalMins += Math.round((s-e)/60000);
+              i++;
+            }
+          }
+          totalMins += Math.round((ahora - ultima) / 60000);
+          horasDia = `${Math.floor(totalMins/60)}h ${String(totalMins%60).padStart(2,"0")}m`;
+        }
+      }
+      await addDoc(collection(db, "fichajes"), {
+        usuarioId:     user.uid,
+        nombre:        perfil.nombre,
+        empresaId:     perfil.empresaId,
+        empresaNombre: empresa?.nombre || "",
+        tipo,
+        timestamp:     Timestamp.fromDate(ahora),
+        fecha:         format(ahora, "dd/MM/yyyy"),
+        hora:          format(ahora, "HH:mm:ss"),
+        horasDia:      horasDia,
+        ip:            "web"
+      });
+      if (tipo === "salida" && horasDia) {
+        showToast(`✓ Salida registrada — Total hoy: ${horasDia}`, "success");
+      } else {
+        showToast(`✓ Entrada registrada a las ${format(ahora, "HH:mm")}`, "success");
+      }
+      await cargarRegistrosHoy();
+    } catch(err) {
+      console.error(err);
+      showToast("Error al registrar. Inténtalo de nuevo.", "error");
+    }
+    setCargando(false);
   };
 
-  const handleClick = async (n) => {
-    if (!n.leida) { await marcarLeida(n.id); cargar(); }
+  const handleLogout = async () => {
+    if (confirmLogout) { await logout(); }
+    else {
+      setConfirmLogout(true);
+      setTimeout(() => setConfirmLogout(false), 4000);
+    }
   };
 
-  const handleEliminar = async (e, id) => {
-    e.stopPropagation();
-    await deleteDoc(doc(db, "notificaciones", id));
-    cargar();
-  };
+  const iniciales = (nombre) =>
+    (nombre||"?").split(" ").slice(0,2).map(p=>p[0]).join("").toUpperCase();
 
-  const iconoTipo  = (t) => ({ success:"✓", warning:"⚠", error:"✗", info:"ℹ" }[t] || "ℹ");
-  const colorTipo  = (t) => ({ success:"#0F6E56", warning:"#BA7517", error:"#C0392B", info:"#2E5FA3" }[t] || "#2E5FA3");
+  const ultimoTipo = registrosHoy.length
+    ? registrosHoy[registrosHoy.length-1].tipo : null;
+
+  const totalHoyFinalizado = calcularHoras(registrosHoy);
+
+  const menuOpciones = [
+    { icon:"📅", label:"Mi historial",       ruta:"/mi-historial" },
+    { icon:"⚠️", label:"Mis incidencias",    ruta:"/incidencias" },
+    { icon:"🏖️", label:"Vacaciones",          ruta:"/vacaciones" },
+    { icon:"🏥", label:"Enfermedad",           ruta:"/enfermedad" },
+    { icon:"💰", label:"Mis nóminas",          ruta:"/nominas" },
+    { icon:"🔑", label:"Cambiar contraseña",  ruta:"/cambiar-password" },
+  ];
 
   return (
-    <div ref={ref} style={{ position:"relative" }}>
-      <button onClick={() => setAbierto(!abierto)} style={{
-        position:"relative", background:"transparent", border:"none",
-        cursor:"pointer", fontSize:20, padding:"4px 8px", borderRadius:8,
-        color: abierto ? "#1B3A6B" : "#6B7280"
-      }}>
-        🔔
-        {noLeidas > 0 && (
-          <span style={{
-            position:"absolute", top:0, right:0, background:"#C0392B", color:"#fff",
-            borderRadius:"50%", fontSize:10, fontWeight:700, width:16, height:16,
-            display:"flex", alignItems:"center", justifyContent:"center"
-          }}>{noLeidas > 9 ? "9+" : noLeidas}</span>
-        )}
-      </button>
+    <div className="fichar-wrap">
+      {ToastUI}
+      <div className="card" style={{ textAlign:"center", padding:"28px 24px", position:"relative" }}>
 
-      {abierto && (
-        <div style={{
-          position:"fixed", top:70, right:8, left:8, width:"auto",
-          background:"#fff", borderRadius:12,
-          boxShadow:"0 8px 30px rgba(0,0,0,.15)",
-          border:"1px solid #E5E7EB", zIndex:999, overflow:"hidden",
-          maxWidth:380, marginLeft:"auto"
-        }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
-            padding:"12px 16px", borderBottom:"1px solid #F3F4F6" }}>
-            <span style={{ fontWeight:600, fontSize:14 }}>Notificaciones</span>
-            <div style={{ display:"flex", gap:8 }}>
-              {noLeidas > 0 && (
-                <button onClick={handleMarcarTodas} style={{
-                  fontSize:12, color:"#2E5FA3", background:"none", border:"none", cursor:"pointer"
-                }}>Marcar leídas</button>
-              )}
-              {notifs.length > 0 && (
-                <button onClick={async () => {
-                  if (!window.confirm("¿Eliminar todas las notificaciones?")) return;
-                  await Promise.all(notifs.map(n => deleteDoc(doc(db,"notificaciones",n.id))));
-                  cargar();
-                }} style={{
-                  fontSize:12, color:"#C0392B", background:"none", border:"none", cursor:"pointer"
-                }}>Borrar todas</button>
-              )}
-            </div>
-          </div>
-          <div style={{ maxHeight:360, overflowY:"auto" }}>
-            {notifs.length === 0 ? (
-              <div style={{ padding:24, textAlign:"center", color:"#9CA3AF", fontSize:13 }}>
-                Sin notificaciones
-              </div>
-            ) : notifs.map(n => (
-              <div key={n.id} onClick={() => handleClick(n)} style={{
-                padding:"10px 14px", borderBottom:"1px solid #F9FAFB",
-                background: n.leida ? "#fff" : "#F0F7FF",
-                cursor:"pointer", display:"flex", gap:8, alignItems:"flex-start"
+        {/* Barra superior: notificaciones + mi cuenta (solo móvil) */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+          <Notificaciones />
+
+          {/* Menú Mi cuenta — solo visible en móvil */}
+          <div style={{ position:"relative" }}>
+            <button onClick={() => setMenuAbierto(!menuAbierto)} className="mobile-show" style={{
+              display:"flex", alignItems:"center", gap:6,
+              border:"1px solid #E5E7EB", background:"transparent",
+              borderRadius:8, padding:"6px 12px", fontSize:13,
+              cursor:"pointer", color:"#6B7280"
+            }}>
+              👤 Mi cuenta ▾
+            </button>
+
+            {menuAbierto && (
+              <div style={{
+                position:"fixed", top:70, right:8, left:8, width:"auto",
+                background:"#fff", border:"1px solid #E5E7EB",
+                borderRadius:10, boxShadow:"0 8px 24px rgba(0,0,0,.12)",
+                zIndex:999, overflow:"hidden", maxWidth:320, marginLeft:"auto"
               }}>
-                <span style={{
-                  fontSize:13, color:colorTipo(n.tipo),
-                  background: n.leida ? "#F3F4F6" : "#EBF2FB",
-                  borderRadius:"50%", width:26, height:26, flexShrink:0,
-                  display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700
-                }}>{iconoTipo(n.tipo)}</span>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontWeight: n.leida ? 400 : 600, fontSize:13 }}>{n.titulo}</div>
-                  <div style={{ fontSize:12, color:"#6B7280", marginTop:2, lineHeight:1.4 }}>{n.mensaje}</div>
-                  <div style={{ fontSize:11, color:"#9CA3AF", marginTop:3 }}>
-                    {n.creadaEn?.toDate?.()?.toLocaleString("es-ES") || ""}
-                  </div>
-                </div>
-                <button onClick={(e) => handleEliminar(e, n.id)} style={{
-                  background:"none", border:"none", cursor:"pointer",
-                  color:"#9CA3AF", fontSize:16, padding:"0 2px", flexShrink:0,
-                  lineHeight:1
-                }} title="Eliminar">×</button>
+                {menuOpciones.map(op => (
+                  <button key={op.ruta} onClick={() => { setMenuAbierto(false); navigate(op.ruta); }}
+                    style={{
+                      display:"flex", alignItems:"center", gap:10,
+                      width:"100%", padding:"11px 16px", border:"none",
+                      background:"transparent", cursor:"pointer", fontSize:14,
+                      color:"#1A1A2E", textAlign:"left", borderBottom:"1px solid #F3F4F6"
+                    }}
+                    onMouseEnter={e=>e.currentTarget.style.background="#F9FAFB"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                  >
+                    <span style={{ fontSize:16 }}>{op.icon}</span>
+                    {op.label}
+                  </button>
+                ))}
+                <button onClick={handleLogout} style={{
+                  display:"flex", alignItems:"center", gap:10,
+                  width:"100%", padding:"11px 16px", border:"none",
+                  background:"transparent", cursor:"pointer", fontSize:14,
+                  color: confirmLogout ? "#C0392B" : "#6B7280", textAlign:"left",
+                  fontWeight: confirmLogout ? 600 : 400
+                }}
+                  onMouseEnter={e=>e.currentTarget.style.background="#FFF5F5"}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                >
+                  <span style={{ fontSize:16 }}>🚪</span>
+                  {confirmLogout ? "¿Seguro? Pulsa de nuevo" : "Cerrar sesión"}
+                </button>
               </div>
-            ))}
+            )}
           </div>
         </div>
-      )}
+
+        <div className="avatar-emp">{iniciales(perfil?.nombre)}</div>
+        <div className="emp-nombre">{perfil?.nombre}</div>
+        <div className="emp-empresa">
+          {empresa ? empresa.nombre : perfil?.empresaId ? "Cargando..." : "Sin empresa"}
+        </div>
+
+        <div className="reloj-grande">{format(hora, "HH:mm:ss")}</div>
+        <div className="fecha-txt">
+          {format(hora, "EEEE, d 'de' MMMM 'de' yyyy", { locale: es })}
+        </div>
+
+        {ultimoTipo === "entrada" && tiempoVivo && (
+          <div style={{ background:"#EBF2FB", borderRadius:10, padding:"10px 16px",
+            marginBottom:16, display:"inline-block" }}>
+            <span style={{ fontSize:12, color:"#2E5FA3", fontWeight:500 }}>
+              ⏱ Tiempo trabajado hoy: <strong>{tiempoVivo}</strong>
+            </span>
+          </div>
+        )}
+
+        {ultimoTipo === "salida" && totalHoyFinalizado && (
+          <div style={{ background:"#E1F5EE", borderRadius:10, padding:"10px 16px",
+            marginBottom:16, display:"inline-block" }}>
+            <span style={{ fontSize:12, color:"#0F6E56", fontWeight:500 }}>
+              ✓ Total hoy: <strong>{totalHoyFinalizado}</strong>
+            </span>
+          </div>
+        )}
+
+        {ultimoTipo !== "entrada" && (
+          <button className="btn btn-green btn-lg" style={{ marginBottom:12 }}
+            onClick={() => registrar("entrada")} disabled={cargando}>
+            {cargando ? "Registrando..." : "⬇ Registrar ENTRADA"}
+          </button>
+        )}
+        {ultimoTipo === "entrada" && (
+          <button className="btn btn-red btn-lg" style={{ marginBottom:12 }}
+            onClick={() => registrar("salida")} disabled={cargando}>
+            {cargando ? "Registrando..." : "⬆ Registrar SALIDA"}
+          </button>
+        )}
+
+        <div style={{ marginTop:24, textAlign:"left" }}>
+          <p style={{ fontSize:12, fontWeight:600, color:"#6B7280", marginBottom:10 }}>
+            REGISTROS DE HOY
+          </p>
+          {registrosHoy.length === 0 ? (
+            <p style={{ fontSize:13, color:"#9CA3AF", textAlign:"center", padding:"12px 0" }}>
+              Sin registros aún hoy
+            </p>
+          ) : (
+            registrosHoy.map(r => (
+              <div key={r.id} style={{
+                display:"flex", justifyContent:"space-between", alignItems:"center",
+                padding:"10px 0", borderBottom:"1px solid #F3F4F6", fontSize:14
+              }}>
+                <span className={`badge ${r.tipo==="entrada"?"badge-green":"badge-red"}`}>
+                  {r.tipo === "entrada" ? "⬇ Entrada" : "⬆ Salida"}
+                </span>
+                <div style={{ display:"flex", gap:12, alignItems:"center" }}>
+                  {r.horasDia && (
+                    <span style={{ fontSize:12, color:"#0F6E56", fontWeight:500 }}>{r.horasDia}</span>
+                  )}
+                  <span style={{ fontWeight:600 }}>{r.hora}</span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </div>
   );
 }
