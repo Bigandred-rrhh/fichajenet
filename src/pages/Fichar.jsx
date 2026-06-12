@@ -173,9 +173,9 @@ export default function Fichar() {
       {ToastUI}
       <div className="card" style={{ textAlign:"center", padding:"28px 24px", position:"relative" }}>
 
-        {/* Barra superior: notificaciones + mi cuenta (solo móvil) */}
+        {/* Barra superior: solo visible en móvil */}
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-          <Notificaciones />
+          <span className="mobile-show"><Notificaciones /></span>
 
           {/* Menú Mi cuenta — solo visible en móvil */}
           <div style={{ position:"relative" }}>
