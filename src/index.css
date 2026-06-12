@@ -230,4 +230,5 @@ body {
 }
 @media (max-width: 768px) {
   .mobile-show { display: flex !important; }
+  .desktop-topbar { display: none !important; }
 }
