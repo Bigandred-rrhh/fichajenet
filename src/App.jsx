@@ -95,7 +95,7 @@ function Layout({ children, rol }) {
       </nav>
 
       <div className="main-wrapper">
-        <div style={{ display:"flex", justifyContent:"flex-end", alignItems:"center",
+        <div className="desktop-topbar" style={{ display:"flex", justifyContent:"flex-end", alignItems:"center",
           padding:"10px 24px", background:"#fff", borderBottom:"1px solid #E5E7EB",
           position:"sticky", top:0, zIndex:50 }}>
           <Notificaciones />
