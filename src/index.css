@@ -226,8 +226,8 @@ body {
 }
 @media (min-width: 769px) {
   .mobile-nav { display: none; }
-  .mobile-only-flex { display: none !important; }
+  .mobile-show { display: none !important; }
 }
 @media (max-width: 768px) {
-  .mobile-only-flex { display: flex; }
+  .mobile-show { display: flex !important; }
 }
