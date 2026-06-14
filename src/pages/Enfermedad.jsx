@@ -99,12 +99,13 @@ export default function Enfermedad() {
       } else {
         await addDoc(collection(db,"enfermedades"),datos);
         showToast("Ausencia reportada correctamente","success");
-        await Promise.all(admins.map(a=>crearNotificacion({
-          usuarioId:a.id,
-          titulo:"Nueva ausencia por enfermedad 🏥",
-          mensaje:`${perfil.nombre} ha reportado: ${form.tipo} desde el ${form.fechaInicio}.`,
-          tipo:"warning",
-        })));
+        if (!esAdmin) {
+          await notificarAdmins({
+            titulo: "Nueva ausencia por enfermedad 🏥",
+            mensaje: perfil.nombre + " ha reportado: " + form.tipo + " desde el " + form.fechaInicio + ".",
+            tipo: "warning"
+          });
+        }
       }
       setModal(false); cargar();
     } catch(e) { showToast("Error: "+e.message,"error"); }
