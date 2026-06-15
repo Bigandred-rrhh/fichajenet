@@ -9,6 +9,7 @@ import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/useToast";
 import { crearNotificacion } from "../lib/notificaciones";
 import { format } from "date-fns";
+import { notificarAdmins } from "../lib/notificarAdmins";
 
 const TIPOS = ["Baja médica","Cita médica","Enfermedad sin baja","Accidente laboral","Otro"];
 const ESTADOS = {
