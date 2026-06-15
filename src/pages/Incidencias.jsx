@@ -8,6 +8,7 @@ import { db } from "../lib/firebase";
 import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/useToast";
 import { format } from "date-fns";
+import { notificarAdmins } from "../lib/notificarAdmins";
 
 const TIPOS = [
   "Olvido de fichaje de entrada",
