@@ -217,9 +217,9 @@ export default function Incidencias() {
                     </button>
                     {esAdmin && inc.estado === "pendiente" && <>
                       <button className="btn btn-green" style={{padding:"4px 10px",fontSize:12}}
-                        onClick={()=>cambiarEstado(inc.id,"aprobada")}>✓</button>
+                        onClick={()=>cambiarEstado(inc,"aprobada")}>✓</button>
                       <button className="btn btn-red" style={{padding:"4px 10px",fontSize:12}}
-                        onClick={()=>cambiarEstado(inc.id,"rechazada")}>✗</button>
+                        onClick={()=>cambiarEstado(inc,"rechazada")}>✗</button>
                     </>}
                     {esAdmin && (
                       <button className="btn btn-red" style={{padding:"4px 10px",fontSize:12}}
