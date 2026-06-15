@@ -9,6 +9,7 @@ import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/useToast";
 import { format } from "date-fns";
 import { notificarAdmins } from "../lib/notificarAdmins";
+import { crearNotificacion } from "../lib/notificaciones";
 
 const TIPOS = [
   "Olvido de fichaje de entrada",
