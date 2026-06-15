@@ -115,12 +115,25 @@ export default function InformePDF() {
   return (
     <div>
       <style>{`
-        @media print {
-          .no-print { display:none!important; }
-          body { background:#fff; }
-          .print-area { box-shadow:none!important; border:none!important; }
-        }
-      `}</style>
+  @media print {
+    .no-print { display:none!important; }
+    .mobile-nav { display:none!important; }
+    .sidebar { display:none!important; }
+    .desktop-topbar { display:none!important; }
+    nav { display:none!important; }
+    body { background:#fff; margin:0; padding:0; }
+    .main-wrapper { margin-left:0!important; }
+    .main-content { padding:0!important; }
+    .print-area {
+      box-shadow:none!important;
+      border:none!important;
+      max-width:100%!important;
+      margin:0!important;
+      padding:20px!important;
+    }
+    * { -webkit-print-color-adjust:exact!important; print-color-adjust:exact!important; }
+  }
+`}</style>
 
       {/* Controles — no se imprimen */}
       <div className="no-print">
