@@ -122,6 +122,13 @@ export default function Incidencias() {
             tipo: "warning"
           });
         }
+        if (!esAdmin) {
+          await notificarAdmins({
+            titulo: "Nueva incidencia registrada ⚠️",
+            mensaje: perfil.nombre + " ha registrado una incidencia: " + form.tipo + " el " + form.fecha + ".",
+            tipo: "warning"
+          });
+        }
       }
       setModal(false); cargar();
     } catch(e) { showToast("Error: "+e.message,"error"); }
