@@ -116,13 +116,7 @@ export default function Incidencias() {
       } else {
         await addDoc(collection(db,"incidencias"), datos);
         showToast("Incidencia registrada","success");
-        if (!esAdmin) {
-          await notificarAdmins({
-            titulo: "Nueva incidencia registrada ⚠️",
-            mensaje: perfil.nombre + " ha registrado una incidencia: " + form.tipo + " el " + form.fecha + ".",
-            tipo: "warning"
-          });
-        }
+        
         if (!esAdmin) {
           await notificarAdmins({
             titulo: "Nueva incidencia registrada ⚠️",
