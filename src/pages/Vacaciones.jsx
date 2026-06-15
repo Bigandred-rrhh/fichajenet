@@ -109,12 +109,11 @@ export default function Vacaciones() {
       } else {
         await addDoc(collection(db,"vacaciones"),datos);
         showToast("Solicitud enviada correctamente","success");
-        await Promise.all(admins.map(a=>crearNotificacion({
-          usuarioId:a.id,
-          titulo:"Nueva solicitud de vacaciones 🏖️",
-          mensaje:`${perfil.nombre} ha solicitado vacaciones del ${form.fechaInicio} al ${form.fechaFin} (${dias} días).`,
-          tipo:"warning",
-        })));
+        await notificarAdmins({
+  titulo: "Nueva solicitud de vacaciones 🏖️",
+  mensaje: perfil.nombre + " ha solicitado vacaciones del " + form.fechaInicio + " al " + form.fechaFin + " (" + dias + " días).",
+  tipo: "warning"
+});
       }
       setModal(false); cargar();
     } catch(e) { showToast("Error: "+e.message,"error"); }
