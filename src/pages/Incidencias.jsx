@@ -135,8 +135,14 @@ export default function Incidencias() {
     setGuardando(false);
   };
 
-  const cambiarEstado = async (id, estado) => {
-    await updateDoc(doc(db,"incidencias",id), { estado, actualizadaEn:Timestamp.now() });
+  const cambiarEstado = async (inc, estado) => {
+    await updateDoc(doc(db,"incidencias",inc.id), { estado, actualizadaEn:Timestamp.now() });
+    await crearNotificacion({
+      usuarioId: inc.empleadoId,
+      titulo: `Incidencia ${estado === "aprobada" ? "aprobada ✓" : "rechazada ✗"}`,
+      mensaje: `Tu incidencia "${inc.tipo}" del ${inc.fecha} ha sido ${estado}.`,
+      tipo: estado === "aprobada" ? "success" : "error"
+    });
     showToast(`Incidencia ${estado}`,"success");
     cargar();
   };
