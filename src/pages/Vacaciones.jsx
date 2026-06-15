@@ -8,6 +8,7 @@ import { db } from "../lib/firebase";
 import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/useToast";
 import { crearNotificacion } from "../lib/notificaciones";
+import { notificarAdmins } from "../lib/notificarAdmins";
 import { format } from "date-fns";
 
 const ESTADOS = {
