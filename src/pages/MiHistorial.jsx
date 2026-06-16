@@ -116,7 +116,7 @@ export default function MiHistorial() {
             <input className="form-input" type="month" value={mes}
               onChange={e=>setMes(e.target.value)} style={{width:170}}/>
             {dias.length > 0 && (
-              <button className="btn btn-primary" onClick={() => window.print()}>
+              <button className="btn btn-primary" onClick={() => { document.querySelector('.print-doc').style.display='block'; window.print(); setTimeout(()=>document.querySelector('.print-doc').style.display='none',500); }}>
                 🖨 Descargar PDF
               </button>
             )}
