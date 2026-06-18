@@ -2,6 +2,7 @@
 import React, { useEffect } from "react";
 import { Routes, Route, NavLink, Navigate } from "react-router-dom";
 import { useAuth } from "./lib/AuthContext";
+import { useLang } from "./lib/LanguageContext";
 import Login           from "./pages/Login";
 import Dashboard       from "./pages/Dashboard";
 import Empresas        from "./pages/Empresas";
@@ -19,6 +20,7 @@ import Notificaciones  from "./components/Notificaciones";
 
 function Layout({ children, rol }) {
   const { perfil, logout } = useAuth();
+  const { lang, toggleLang, t } = useLang();
   const esAdmin = rol === "admin" || rol === "rrhh";
   const esEmpleado = rol === "empleado";
 
@@ -37,52 +39,52 @@ function Layout({ children, rol }) {
         </div>
         <div style={{ flex:1, paddingTop:8, overflowY:"auto" }}>
           {esAdmin && <>
-            <div className="nav-section-label">General</div>
+            <div className="nav-section-label">{t("nav_general")}</div>
             <NavLink to="/dashboard"  className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-              <span className="nav-icon">📊</span> Inicio
+              <span className="nav-icon">📊</span> {t("nav_inicio")}
             </NavLink>
             <NavLink to="/empresas"   className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-              <span className="nav-icon">🏢</span> Empresas
+              <span className="nav-icon">🏢</span> {t("nav_empresas")}
             </NavLink>
             <NavLink to="/empleados"  className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-              <span className="nav-icon">👥</span> Empleados
+              <span className="nav-icon">👥</span> {t("nav_empleados")}
             </NavLink>
-            <div className="nav-section-label">Registros</div>
+            <div className="nav-section-label">{t("nav_registros")}</div>
             <NavLink to="/fichajes"    className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-              <span className="nav-icon">📋</span> Fichajes
+              <span className="nav-icon">📋</span> {t("nav_fichajes")}
             </NavLink>
             <NavLink to="/incidencias" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-              <span className="nav-icon">⚠️</span> Incidencias
+              <span className="nav-icon">⚠️</span> {t("nav_incidencias")}
             </NavLink>
             <NavLink to="/informe-pdf" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-              <span className="nav-icon">📄</span> Informe PDF
+              <span className="nav-icon">📄</span> {t("nav_informe_pdf")}
             </NavLink>
-            <div className="nav-section-label">RRHH</div>
+            <div className="nav-section-label">{t("nav_rrhh")}</div>
             <NavLink to="/vacaciones"  className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-              <span className="nav-icon">🏖️</span> Vacaciones
+              <span className="nav-icon">🏖️</span> {t("nav_vacaciones")}
             </NavLink>
             <NavLink to="/enfermedad"  className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-              <span className="nav-icon">🏥</span> Enfermedad
+              <span className="nav-icon">🏥</span> {t("nav_enfermedad")}
             </NavLink>
             <NavLink to="/nominas"     className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-              <span className="nav-icon">💰</span> Nóminas
+              <span className="nav-icon">💰</span> {t("nav_nominas")}
             </NavLink>
           </>}
-          <div className="nav-section-label">Mi jornada</div>
+          <div className="nav-section-label">{t("nav_jornada")}</div>
           <NavLink to="/fichar"          className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-            <span className="nav-icon">👆</span> Fichar
+            <span className="nav-icon">👆</span> {t("nav_fichar")}
           </NavLink>
           <NavLink to="/mi-historial"    className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-            <span className="nav-icon">📅</span> Mi historial
+            <span className="nav-icon">📅</span> {t("nav_historial")}
           </NavLink>
           {esEmpleado && <>
             <NavLink to="/incidencias"   className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-              <span className="nav-icon">⚠️</span> Incidencias
+              <span className="nav-icon">⚠️</span> {t("nav_incidencias")}
             </NavLink>
           </>}
-          <div className="nav-section-label">Cuenta</div>
+          <div className="nav-section-label">{t("nav_cuenta")}</div>
           <NavLink to="/cambiar-password" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-            <span className="nav-icon">🔑</span> Contraseña
+            <span className="nav-icon">🔑</span> {t("nav_password")}
           </NavLink>
         </div>
         <div style={{ padding:"12px 18px", borderTop:"1px solid rgba(255,255,255,.12)" }}>
@@ -90,14 +92,30 @@ function Layout({ children, rol }) {
           <button onClick={logout} className="btn" style={{
             width:"100%", justifyContent:"center", fontSize:13,
             background:"rgba(255,255,255,.1)", color:"#fff", borderColor:"rgba(255,255,255,.2)"
-          }}>Cerrar sesión</button>
+          }}>{t("nav_cerrar_sesion")}</button>
         </div>
       </nav>
 
       <div className="main-wrapper">
-        <div className="desktop-topbar" style={{ display:"flex", justifyContent:"flex-end", alignItems:"center",
-          padding:"10px 24px", background:"#fff", borderBottom:"1px solid #E5E7EB",
-          position:"sticky", top:0, zIndex:50 }}>
+        <div className="desktop-topbar" style={{
+          display:"flex", justifyContent:"flex-end", alignItems:"center",
+          gap:"8px", padding:"10px 24px", background:"#fff",
+          borderBottom:"1px solid #E5E7EB", position:"sticky", top:0, zIndex:50
+        }}>
+          <button
+            onClick={toggleLang}
+            title={lang === "es" ? "Switch to English" : "Cambiar a Español"}
+            style={{
+              background:"none", border:"1px solid #E5E7EB", borderRadius:8,
+              padding:"5px 10px", cursor:"pointer", fontSize:18,
+              display:"flex", alignItems:"center", gap:6,
+              color:"#6B7280", transition:"all .15s", lineHeight:1
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = "#F3F4F6"}
+            onMouseLeave={e => e.currentTarget.style.background = "none"}
+          >
+            {lang === "es" ? "🇬🇧" : "🇪🇸"}
+          </button>
           <Notificaciones />
         </div>
         <main className="main-content">{children}</main>
@@ -106,16 +124,16 @@ function Layout({ children, rol }) {
       {esAdmin && (
         <nav className="mobile-nav">
           <NavLink to="/dashboard"   className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
-            <span>📊</span><span>Inicio</span>
+            <span>📊</span><span>{t("nav_inicio")}</span>
           </NavLink>
           <NavLink to="/fichajes"    className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
-            <span>📋</span><span>Fichajes</span>
+            <span>📋</span><span>{t("nav_fichajes")}</span>
           </NavLink>
           <NavLink to="/vacaciones"  className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
-            <span>🏖️</span><span>Vacaciones</span>
+            <span>🏖️</span><span>{t("nav_vacaciones")}</span>
           </NavLink>
           <NavLink to="/empleados"   className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
-            <span>👥</span><span>Empleados</span>
+            <span>👥</span><span>{t("nav_empleados")}</span>
           </NavLink>
         </nav>
       )}
@@ -125,7 +143,8 @@ function Layout({ children, rol }) {
 
 function RutaProtegida({ children, soloAdmin }) {
   const { user, perfil, cargando } = useAuth();
-  if (cargando) return <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh" }}>Cargando...</div>;
+  const { t } = useLang();
+  if (cargando) return <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh" }}>{t("cargando")}</div>;
   if (!user) return <Navigate to="/login" replace />;
   if (soloAdmin && perfil?.rol === "empleado") return <Navigate to="/fichar" replace />;
   return <Layout rol={perfil?.rol}>{children}</Layout>;
