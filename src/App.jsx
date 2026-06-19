@@ -18,10 +18,31 @@ import Enfermedad      from "./pages/Enfermedad";
 import Nominas         from "./pages/Nominas";
 import Notificaciones  from "./components/Notificaciones";
 
+function BotonIdioma({ toggleLang, lang, style = {} }) {
+  return (
+    <button
+      onClick={toggleLang}
+      title={lang === "es" ? "Switch to English" : "Cambiar a Español"}
+      style={{
+        background: "none", border: "1px solid rgba(255,255,255,.25)",
+        borderRadius: 8, padding: "5px 10px", cursor: "pointer",
+        fontSize: 13, fontWeight: 700, letterSpacing: ".04em",
+        display: "flex", alignItems: "center",
+        color: "#fff", transition: "all .15s", lineHeight: 1,
+        ...style
+      }}
+      onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,.15)"}
+      onMouseLeave={e => e.currentTarget.style.background = "none"}
+    >
+      {lang === "es" ? "EN" : "ES"}
+    </button>
+  );
+}
+
 function Layout({ children, rol }) {
   const { perfil, logout } = useAuth();
   const { lang, toggleLang, t } = useLang();
-  const esAdmin = rol === "admin" || rol === "rrhh";
+  const esAdmin    = rol === "admin" || rol === "rrhh";
   const esEmpleado = rol === "empleado";
 
   useEffect(() => {
@@ -71,14 +92,14 @@ function Layout({ children, rol }) {
             </NavLink>
           </>}
           <div className="nav-section-label">{t("nav_jornada")}</div>
-          <NavLink to="/fichar"          className={({isActive})=>"nav-link"+(isActive?" active":"")}>
+          <NavLink to="/fichar"       className={({isActive})=>"nav-link"+(isActive?" active":"")}>
             <span className="nav-icon">👆</span> {t("nav_fichar")}
           </NavLink>
-          <NavLink to="/mi-historial"    className={({isActive})=>"nav-link"+(isActive?" active":"")}>
+          <NavLink to="/mi-historial" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
             <span className="nav-icon">📅</span> {t("nav_historial")}
           </NavLink>
           {esEmpleado && <>
-            <NavLink to="/incidencias"   className={({isActive})=>"nav-link"+(isActive?" active":"")}>
+            <NavLink to="/incidencias" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
               <span className="nav-icon">⚠️</span> {t("nav_incidencias")}
             </NavLink>
           </>}
@@ -89,6 +110,10 @@ function Layout({ children, rol }) {
         </div>
         <div style={{ padding:"12px 18px", borderTop:"1px solid rgba(255,255,255,.12)" }}>
           <div style={{ fontSize:12, color:"rgba(255,255,255,.55)", marginBottom:8 }}>{perfil?.nombre}</div>
+          {/* Botón idioma en sidebar (visible en escritorio) */}
+          <div style={{ marginBottom:8 }}>
+            <BotonIdioma toggleLang={toggleLang} lang={lang} />
+          </div>
           <button onClick={logout} className="btn" style={{
             width:"100%", justifyContent:"center", fontSize:13,
             background:"rgba(255,255,255,.1)", color:"#fff", borderColor:"rgba(255,255,255,.2)"
@@ -97,25 +122,12 @@ function Layout({ children, rol }) {
       </nav>
 
       <div className="main-wrapper">
+        {/* Topbar escritorio */}
         <div className="desktop-topbar" style={{
           display:"flex", justifyContent:"flex-end", alignItems:"center",
           gap:"8px", padding:"10px 24px", background:"#fff",
           borderBottom:"1px solid #E5E7EB", position:"sticky", top:0, zIndex:50
         }}>
-          <button
-            onClick={toggleLang}
-            title={lang === "es" ? "Switch to English" : "Cambiar a Español"}
-            style={{
-              background:"none", border:"1px solid #E5E7EB", borderRadius:8,
-              padding:"5px 10px", cursor:"pointer", fontSize:18,
-              display:"flex", alignItems:"center", gap:6,
-              color:"#6B7280", transition:"all .15s", lineHeight:1
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = "#F3F4F6"}
-            onMouseLeave={e => e.currentTarget.style.background = "none"}
-          >
-            {lang === "es" ? "🇬🇧" : "🇪🇸"}
-          </button>
           <Notificaciones />
         </div>
         <main className="main-content">{children}</main>
@@ -123,18 +135,32 @@ function Layout({ children, rol }) {
 
       {esAdmin && (
         <nav className="mobile-nav">
-          <NavLink to="/dashboard"   className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
+          <NavLink to="/dashboard"  className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
             <span>📊</span><span>{t("nav_inicio")}</span>
           </NavLink>
-          <NavLink to="/fichajes"    className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
+          <NavLink to="/fichajes"   className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
             <span>📋</span><span>{t("nav_fichajes")}</span>
           </NavLink>
-          <NavLink to="/vacaciones"  className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
+          <NavLink to="/vacaciones" className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
             <span>🏖️</span><span>{t("nav_vacaciones")}</span>
           </NavLink>
-          <NavLink to="/empleados"   className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
+          <NavLink to="/empleados"  className={({isActive})=>"mobile-nav-item"+(isActive?" active":"")}>
             <span>👥</span><span>{t("nav_empleados")}</span>
           </NavLink>
+          {/* Botón idioma en barra móvil */}
+          <button
+            onClick={toggleLang}
+            style={{
+              flex:1, display:"flex", flexDirection:"column", alignItems:"center",
+              padding:"10px 6px", background:"none", border:"none", cursor:"pointer",
+              color:"rgba(255,255,255,.6)", fontSize:10, gap:3, textDecoration:"none"
+            }}
+          >
+            <span style={{ fontSize:18, fontWeight:700, color:"rgba(255,255,255,.6)" }}>
+              {lang === "es" ? "EN" : "ES"}
+            </span>
+            <span>{lang === "es" ? "English" : "Español"}</span>
+          </button>
         </nav>
       )}
     </div>
