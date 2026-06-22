@@ -1,20 +1,14 @@
 // src/pages/Empleados.jsx
 import React, { useEffect, useState } from "react";
-import {
-  collection, getDocs, doc, updateDoc, deleteDoc, setDoc
-} from "firebase/firestore";
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword
-} from "firebase/auth";
+import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc } from "firebase/firestore";
+import { createUserWithEmailAndPassword } from "firebase/auth";
 import { initializeApp, getApps } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { auth, db } from "../lib/firebase";
 import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/useToast";
+import { useLang } from "../lib/LanguageContext";
 
-// Segunda instancia de Firebase solo para crear usuarios
-// sin cerrar la sesión del admin
 function getSecondaryAuth() {
   const apps = getApps();
   const secondaryApp = apps.find(a => a.name === "secondary") ||
@@ -27,6 +21,7 @@ const VACIO = { nombre:"", email:"", password:"", empresaId:"", categoria:"", jo
 export default function Empleados() {
   const { showToast, ToastUI } = useToast();
   const { user: adminUser } = useAuth();
+  const { t } = useLang();
   const [empleados, setEmpleados] = useState([]);
   const [empresas,  setEmpresas]  = useState([]);
   const [modal,     setModal]     = useState(false);
@@ -39,8 +34,8 @@ export default function Empleados() {
 
   const cargar = async () => {
     const [empSnap, usrSnap] = await Promise.all([
-      getDocs(collection(db, "empresas")),
-      getDocs(collection(db, "usuarios")),
+      getDocs(collection(db,"empresas")),
+      getDocs(collection(db,"usuarios")),
     ]);
     setEmpresas(empSnap.docs.map(d => ({ id:d.id, ...d.data() })));
     setEmpleados(usrSnap.docs.map(d => ({ id:d.id, ...d.data() })));
@@ -54,92 +49,76 @@ export default function Empleados() {
 
   const guardar = async () => {
     if (!form.nombre || !form.email || !form.empresaId) {
-      showToast("Nombre, email y empresa son obligatorios", "error"); return;
+      showToast("Nombre, email y empresa son obligatorios","error"); return;
     }
     if (!editId && !form.password) {
-      showToast("La contraseña es obligatoria para nuevos empleados", "error"); return;
+      showToast("La contraseña es obligatoria para nuevos empleados","error"); return;
     }
     setGuardando(true);
     try {
       if (editId) {
-        await updateDoc(doc(db, "usuarios", editId), {
-          nombre: form.nombre, empresaId: form.empresaId,
-          categoria: form.categoria, jornada: form.jornada, rol: form.rol
+        await updateDoc(doc(db,"usuarios",editId), {
+          nombre:form.nombre, empresaId:form.empresaId,
+          categoria:form.categoria, jornada:form.jornada, rol:form.rol
         });
-        showToast("Empleado actualizado", "success");
+        showToast("Empleado actualizado","success");
       } else {
-        // Usar instancia secundaria para NO cerrar sesión del admin
         const secondaryAuth = getSecondaryAuth();
-        const cred = await createUserWithEmailAndPassword(
-          secondaryAuth, form.email, form.password
-        );
+        const cred = await createUserWithEmailAndPassword(secondaryAuth, form.email, form.password);
         const newUid = cred.user.uid;
-
-        // Cerrar sesión en la instancia secundaria (no afecta al admin)
         await secondaryAuth.signOut();
-
-        // Guardar perfil en Firestore
-        await setDoc(doc(db, "usuarios", newUid), {
-          nombre:     form.nombre,
-          email:      form.email,
-          empresaId:  form.empresaId,
-          categoria:  form.categoria,
-          jornada:    form.jornada,
-          rol:        form.rol,
-          activo:     true
+        await setDoc(doc(db,"usuarios",newUid), {
+          nombre:form.nombre, email:form.email, empresaId:form.empresaId,
+          categoria:form.categoria, jornada:form.jornada, rol:form.rol, activo:true
         });
-        showToast(`Empleado "${form.nombre}" creado correctamente`, "success");
+        showToast(`Empleado "${form.nombre}" creado correctamente`,"success");
       }
-      setModal(false);
-      cargar();
-    } catch (err) {
-      if (err.code === "auth/email-already-in-use")
-        showToast("Ese email ya está registrado", "error");
-      else if (err.code === "auth/weak-password")
-        showToast("La contraseña debe tener al menos 6 caracteres", "error");
-      else
-        showToast("Error: " + err.message, "error");
+      setModal(false); cargar();
+    } catch(err) {
+      if (err.code==="auth/email-already-in-use") showToast("Ese email ya está registrado","error");
+      else if (err.code==="auth/weak-password") showToast("La contraseña debe tener al menos 6 caracteres","error");
+      else showToast("Error: "+err.message,"error");
     }
     setGuardando(false);
   };
 
   const eliminar = async (id) => {
     if (!window.confirm("¿Eliminar este empleado?")) return;
-    await deleteDoc(doc(db, "usuarios", id));
-    showToast("Empleado eliminado", "success");
-    cargar();
+    await deleteDoc(doc(db,"usuarios",id));
+    showToast("Empleado eliminado","success"); cargar();
   };
 
-  const empNombre = (id) => empresas.find(e => e.id === id)?.nombre || "—";
-
-  const lista = filtro
-    ? empleados.filter(e => e.empresaId === filtro)
-    : empleados;
+  const empNombre = (id) => empresas.find(e => e.id===id)?.nombre || "—";
+  const lista = filtro ? empleados.filter(e => e.empresaId===filtro) : empleados;
 
   return (
     <div>
       {ToastUI}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-        <h1 style={{ fontSize:22, fontWeight:700 }}>Empleados</h1>
+        <h1 style={{ fontSize:22, fontWeight:700 }}>{t("emp_titulo")}</h1>
         <div style={{ display:"flex", gap:10 }}>
           <select className="form-input form-select" style={{ width:"auto" }}
-            value={filtro} onChange={e => setFiltro(e.target.value)}>
-            <option value="">Todas las empresas</option>
+            value={filtro} onChange={e=>setFiltro(e.target.value)}>
+            <option value="">{t("emp_todas_empresas")}</option>
             {empresas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
           </select>
-          <button className="btn btn-primary" onClick={() => abrir(null)}>+ Nuevo empleado</button>
+          <button className="btn btn-primary" onClick={()=>abrir(null)}>{t("emp_nuevo")}</button>
         </div>
       </div>
 
       <div className="card">
         <table className="tabla">
           <thead>
-            <tr><th>Nombre</th><th>Email</th><th>Empresa</th><th>Categoría</th><th>Rol</th><th>Acciones</th></tr>
+            <tr>
+              <th>{t("emp_nombre")}</th><th>{t("emp_email")}</th>
+              <th>{t("emp_empresa")}</th><th>{t("emp_categoria")}</th>
+              <th>{t("emp_rol")}</th><th>{t("emp_acciones")}</th>
+            </tr>
           </thead>
           <tbody>
-            {lista.length === 0 && (
+            {lista.length===0 && (
               <tr><td colSpan={6} style={{ textAlign:"center", color:"#9CA3AF", padding:24 }}>
-                No hay empleados. Añade el primero.
+                {t("emp_sin_empleados")}
               </td></tr>
             )}
             {lista.map(e => (
@@ -147,15 +126,11 @@ export default function Empleados() {
                 <td style={{ fontWeight:600 }}>{e.nombre}</td>
                 <td style={{ fontSize:13, color:"#6B7280" }}>{e.email}</td>
                 <td style={{ fontSize:13 }}>{empNombre(e.empresaId)}</td>
-                <td>{e.categoria || "—"}</td>
-                <td>
-                  <span className={`badge ${e.rol === "admin" ? "badge-blue" : "badge-gray"}`}>
-                    {e.rol}
-                  </span>
-                </td>
+                <td>{e.categoria||"—"}</td>
+                <td><span className={`badge ${e.rol==="admin"?"badge-blue":"badge-gray"}`}>{e.rol}</span></td>
                 <td style={{ display:"flex", gap:8 }}>
-                  <button className="btn" style={{ padding:"5px 10px", fontSize:13 }} onClick={() => abrir(e)}>✏ Editar</button>
-                  <button className="btn btn-red" style={{ padding:"5px 10px", fontSize:13 }} onClick={() => eliminar(e.id)}>🗑</button>
+                  <button className="btn" style={{ padding:"5px 10px", fontSize:13 }} onClick={()=>abrir(e)}>{t("editar")}</button>
+                  <button className="btn btn-red" style={{ padding:"5px 10px", fontSize:13 }} onClick={()=>eliminar(e.id)}>🗑</button>
                 </td>
               </tr>
             ))}
@@ -164,64 +139,63 @@ export default function Empleados() {
       </div>
 
       {modal && (
-        <div className="modal-overlay" onClick={() => setModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-title">{editId ? "Editar empleado" : "Nuevo empleado"}</div>
-
+        <div className="modal-overlay" onClick={()=>setModal(false)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">{editId ? t("emp_modal_editar") : t("emp_modal_nuevo")}</div>
             <div className="form-group">
-              <label className="form-label">Nombre completo *</label>
+              <label className="form-label">{t("emp_nombre_label")}</label>
               <input className="form-input" placeholder="María López García"
-                value={form.nombre} onChange={e => setForm({...form, nombre:e.target.value})} />
+                value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} />
             </div>
             {!editId && <>
               <div className="form-group">
-                <label className="form-label">Email *</label>
+                <label className="form-label">{t("emp_email_label")}</label>
                 <input className="form-input" type="email" placeholder="maria@empresa.com"
-                  value={form.email} onChange={e => setForm({...form, email:e.target.value})} />
+                  value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
               </div>
               <div className="form-group">
-                <label className="form-label">Contraseña inicial *</label>
+                <label className="form-label">{t("emp_pwd_label")}</label>
                 <input className="form-input" type="text" placeholder="Mínimo 6 caracteres"
-                  value={form.password} onChange={e => setForm({...form, password:e.target.value})} />
-                <small style={{ color:"#9CA3AF", fontSize:12 }}>El empleado podrá cambiarla después.</small>
+                  value={form.password} onChange={e=>setForm({...form,password:e.target.value})} />
+                <small style={{ color:"#9CA3AF", fontSize:12 }}>{t("emp_pwd_hint")}</small>
               </div>
             </>}
             <div className="form-group">
-              <label className="form-label">Empresa *</label>
+              <label className="form-label">{t("emp_empresa_label")}</label>
               <select className="form-input form-select"
-                value={form.empresaId} onChange={e => setForm({...form, empresaId:e.target.value})}>
-                <option value="">Selecciona empresa...</option>
+                value={form.empresaId} onChange={e=>setForm({...form,empresaId:e.target.value})}>
+                <option value="">{t("emp_empresa_sel")}</option>
                 {empresas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
               </select>
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
               <div className="form-group">
-                <label className="form-label">Categoría profesional</label>
+                <label className="form-label">{t("emp_cat_label")}</label>
                 <input className="form-input" placeholder="Comercial, Técnico..."
-                  value={form.categoria} onChange={e => setForm({...form, categoria:e.target.value})} />
+                  value={form.categoria} onChange={e=>setForm({...form,categoria:e.target.value})} />
               </div>
               <div className="form-group">
-                <label className="form-label">Tipo de jornada</label>
+                <label className="form-label">{t("emp_jornada_label")}</label>
                 <select className="form-input form-select"
-                  value={form.jornada} onChange={e => setForm({...form, jornada:e.target.value})}>
-                  <option value="completa">Completa (40h)</option>
-                  <option value="parcial">Parcial</option>
+                  value={form.jornada} onChange={e=>setForm({...form,jornada:e.target.value})}>
+                  <option value="completa">{t("emp_jornada_completa")}</option>
+                  <option value="parcial">{t("emp_jornada_parcial")}</option>
                 </select>
               </div>
             </div>
             <div className="form-group">
-              <label className="form-label">Rol en el sistema</label>
+              <label className="form-label">{t("emp_rol_label")}</label>
               <select className="form-input form-select"
-                value={form.rol} onChange={e => setForm({...form, rol:e.target.value})}>
-                <option value="empleado">Empleado (solo ficha)</option>
-                <option value="rrhh">RRHH (ve su empresa)</option>
-                <option value="admin">Administrador (acceso total)</option>
+                value={form.rol} onChange={e=>setForm({...form,rol:e.target.value})}>
+                <option value="empleado">{t("emp_rol_empleado")}</option>
+                <option value="rrhh">{t("emp_rol_rrhh")}</option>
+                <option value="admin">{t("emp_rol_admin")}</option>
               </select>
             </div>
             <div className="modal-actions">
-              <button className="btn" onClick={() => setModal(false)}>Cancelar</button>
+              <button className="btn" onClick={()=>setModal(false)}>{t("cancelar")}</button>
               <button className="btn btn-primary" onClick={guardar} disabled={guardando}>
-                {guardando ? "Creando empleado..." : "Guardar"}
+                {guardando ? t("emp_creando") : t("emp_guardar")}
               </button>
             </div>
           </div>
