@@ -1,29 +1,28 @@
 // src/pages/Enfermedad.jsx
 import React, { useEffect, useState } from "react";
-import {
-  collection, getDocs, addDoc, updateDoc, deleteDoc,
-  doc, query, orderBy, Timestamp, where
-} from "firebase/firestore";
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, Timestamp, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/useToast";
+import { useLang } from "../lib/LanguageContext";
 import { crearNotificacion } from "../lib/notificaciones";
 import { format } from "date-fns";
-import { notificarAdmins } from "../lib/notificarAdmins";
 
 const TIPOS = ["Baja médica","Cita médica","Enfermedad sin baja","Accidente laboral","Otro"];
-const ESTADOS = {
-  reportada:  { label:"Reportada",  clase:"badge-amber" },
-  confirmada: { label:"Confirmada", clase:"badge-blue"  },
-  resuelta:   { label:"Resuelta",   clase:"badge-green" },
-};
 const VACIA = { empleadoId:"", empleadoNombre:"", empresaId:"", empresaNombre:"",
   fechaInicio:"", fechaFin:"", tipo:"Baja médica", descripcion:"", estado:"reportada" };
 
 export default function Enfermedad() {
   const { user, perfil } = useAuth();
   const { showToast, ToastUI } = useToast();
-  const esAdmin = perfil?.rol === "admin" || perfil?.rol === "rrhh";
+  const { t } = useLang();
+  const esAdmin = perfil?.rol==="admin" || perfil?.rol==="rrhh";
+
+  const ESTADOS = {
+    reportada:  { label:t("enf_estado_reportada"),  clase:"badge-amber" },
+    confirmada: { label:t("enf_estado_confirmada"), clase:"badge-blue"  },
+    resuelta:   { label:t("enf_estado_resuelta"),   clase:"badge-green" },
+  };
 
   const [bajas,     setBajas]     = useState([]);
   const [empleados, setEmpleados] = useState([]);
@@ -75,8 +74,7 @@ export default function Enfermedad() {
   const onEmpleadoChange = (uid) => {
     const emp=empleados.find(e=>e.id===uid);
     const empresa=empresas.find(e=>e.id===emp?.empresaId);
-    setForm(f=>({...f,empleadoId:uid,empleadoNombre:emp?.nombre||"",
-      empresaId:emp?.empresaId||"",empresaNombre:empresa?.nombre||""}));
+    setForm(f=>({...f,empleadoId:uid,empleadoNombre:emp?.nombre||"",empresaId:emp?.empresaId||"",empresaNombre:empresa?.nombre||""}));
   };
 
   const guardar = async () => {
@@ -94,20 +92,8 @@ export default function Enfermedad() {
         creadaEn:editId?form.creadaEn:Timestamp.now(),
         creadaPor:editId?form.creadaPor:perfil.nombre,
       };
-      if (editId) {
-        await updateDoc(doc(db,"enfermedades",editId),datos);
-        showToast("Registro actualizado","success");
-      } else {
-        await addDoc(collection(db,"enfermedades"),datos);
-        showToast("Ausencia reportada correctamente","success");
-        if (!esAdmin) {
-          await notificarAdmins({
-            titulo: "Nueva ausencia por enfermedad 🏥",
-            mensaje: perfil.nombre + " ha reportado: " + form.tipo + " desde el " + form.fechaInicio + ".",
-            tipo: "warning"
-          });
-        }
-      }
+      if (editId) { await updateDoc(doc(db,"enfermedades",editId),datos); showToast("Registro actualizado","success"); }
+      else        { await addDoc(collection(db,"enfermedades"),datos);    showToast("Ausencia reportada correctamente","success"); }
       setModal(false); cargar();
     } catch(e) { showToast("Error: "+e.message,"error"); }
     setGuardando(false);
@@ -139,14 +125,14 @@ export default function Enfermedad() {
       {ToastUI}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
         <div>
-          <h1 style={{fontSize:22,fontWeight:700}}>Enfermedad y ausencias</h1>
-          {reportadas>0&&esAdmin&&<span style={{fontSize:13,color:"#BA7517"}}>⚠ {reportadas} por revisar</span>}
+          <h1 style={{fontSize:22,fontWeight:700}}>{t("enf_titulo")}</h1>
+          {reportadas>0&&esAdmin&&<span style={{fontSize:13,color:"#BA7517"}}>⚠ {reportadas} {t("enf_por_revisar")}</span>}
         </div>
-        <button className="btn btn-primary" onClick={()=>abrir(null)} style={{fontSize:13}}>+ Reportar ausencia</button>
+        <button className="btn btn-primary" onClick={()=>abrir(null)} style={{fontSize:13}}>{t("enf_reportar")}</button>
       </div>
 
-      {bajas.length === 0 ? (
-        <div className="card" style={{textAlign:"center",padding:32,color:"#9CA3AF"}}>Sin registros</div>
+      {bajas.length===0 ? (
+        <div className="card" style={{textAlign:"center",padding:32,color:"#9CA3AF"}}>{t("enf_sin_datos")}</div>
       ) : (
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {bajas.map(b=>(
@@ -155,22 +141,18 @@ export default function Enfermedad() {
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontWeight:600,fontSize:15}}>{b.empleadoNombre}</div>
                   {esAdmin&&<div style={{fontSize:12,color:"#6B7280"}}>{b.empresaNombre}</div>}
-                  <div style={{fontSize:13,color:"#374151",marginTop:4}}>
-                    🏥 {b.tipo}
-                  </div>
-                  <div style={{fontSize:13,color:"#6B7280",marginTop:2}}>
-                    {b.fechaInicio}{b.fechaFin?" → "+b.fechaFin:""}
-                  </div>
+                  <div style={{fontSize:13,color:"#374151",marginTop:4}}>🏥 {b.tipo}</div>
+                  <div style={{fontSize:13,color:"#6B7280",marginTop:2}}>{b.fechaInicio}{b.fechaFin?" → "+b.fechaFin:""}</div>
                   {b.descripcion&&<div style={{fontSize:12,color:"#9CA3AF",marginTop:2}}>{b.descripcion}</div>}
                 </div>
                 <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
-                  <span className={`badge ${ESTADOS[b.estado]?.clase||"badge-gray"}`}>
-                    {ESTADOS[b.estado]?.label||b.estado}
-                  </span>
+                  <span className={`badge ${ESTADOS[b.estado]?.clase||"badge-gray"}`}>{ESTADOS[b.estado]?.label||b.estado}</span>
                   <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>
-                    <button className="btn" style={{padding:"4px 10px",fontSize:12}} onClick={()=>abrir(b)}>{esAdmin?"✏ Editar":"Ver"}</button>
-                    {esAdmin&&b.estado==="reportada"&&<button className="btn btn-primary" style={{padding:"4px 10px",fontSize:12}} onClick={()=>cambiarEstado(b,"confirmada")}>Confirmar</button>}
-                    {esAdmin&&b.estado==="confirmada"&&<button className="btn btn-green" style={{padding:"4px 10px",fontSize:12}} onClick={()=>cambiarEstado(b,"resuelta")}>Resolver</button>}
+                    <button className="btn" style={{padding:"4px 10px",fontSize:12}} onClick={()=>abrir(b)}>
+                      {esAdmin?t("editar"):t("ver")}
+                    </button>
+                    {esAdmin&&b.estado==="reportada"&&<button className="btn btn-primary" style={{padding:"4px 10px",fontSize:12}} onClick={()=>cambiarEstado(b,"confirmada")}>{t("enf_confirmar")}</button>}
+                    {esAdmin&&b.estado==="confirmada"&&<button className="btn btn-green"   style={{padding:"4px 10px",fontSize:12}} onClick={()=>cambiarEstado(b,"resuelta")}>{t("enf_resolver")}</button>}
                     {esAdmin&&<button className="btn btn-red" style={{padding:"4px 10px",fontSize:12}} onClick={()=>eliminar(b.id)}>🗑</button>}
                   </div>
                 </div>
@@ -183,61 +165,61 @@ export default function Enfermedad() {
       {modal&&(
         <div className="modal-overlay" onClick={()=>setModal(false)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">{editId?"Editar ausencia":"Reportar ausencia"}</div>
+            <div className="modal-title">{editId?t("enf_modal_editar"):t("enf_modal_nueva")}</div>
             {esAdmin?(
               <div className="form-group">
-                <label className="form-label">Empleado *</label>
+                <label className="form-label">{t("enf_empleado")}</label>
                 <select className="form-input form-select" value={form.empleadoId} onChange={e=>onEmpleadoChange(e.target.value)}>
-                  <option value="">Selecciona empleado...</option>
+                  <option value="">{t("enf_empleado_sel")}</option>
                   {empleados.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
                 </select>
               </div>
             ):(
               <div className="form-group">
-                <label className="form-label">Empleado</label>
+                <label className="form-label">{t("enf_empleado")}</label>
                 <input className="form-input" value={perfil.nombre} disabled style={{background:"#F9F9F9",color:"#9CA3AF"}}/>
               </div>
             )}
             <div className="form-group">
-              <label className="form-label">Tipo *</label>
+              <label className="form-label">{t("enf_tipo")}</label>
               <select className="form-input form-select" value={form.tipo} onChange={e=>setForm({...form,tipo:e.target.value})}>
-                {TIPOS.map(t=><option key={t} value={t}>{t}</option>)}
+                {TIPOS.map(tp=><option key={tp} value={tp}>{tp}</option>)}
               </select>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               <div className="form-group">
-                <label className="form-label">Fecha inicio *</label>
-                <input className="form-input" type="date" value={form.fechaInicio}
-                  onChange={e=>setForm({...form,fechaInicio:e.target.value})}/>
+                <label className="form-label">{t("enf_fecha_inicio")}</label>
+                <input className="form-input" type="date" value={form.fechaInicio} onChange={e=>setForm({...form,fechaInicio:e.target.value})}/>
               </div>
               <div className="form-group">
-                <label className="form-label">Fecha fin</label>
-                <input className="form-input" type="date" value={form.fechaFin}
-                  onChange={e=>setForm({...form,fechaFin:e.target.value})}/>
+                <label className="form-label">{t("enf_fecha_fin")}</label>
+                <input className="form-input" type="date" value={form.fechaFin} onChange={e=>setForm({...form,fechaFin:e.target.value})}/>
               </div>
             </div>
             <div className="form-group">
-              <label className="form-label">Descripción</label>
+              <label className="form-label">{t("enf_descripcion")}</label>
               <textarea className="form-input" rows={2} value={form.descripcion}
                 onChange={e=>setForm({...form,descripcion:e.target.value})}
-                placeholder="Detalles adicionales..." style={{resize:"vertical"}}/>
+                placeholder={t("enf_desc_ph")} style={{resize:"vertical"}}/>
             </div>
             {esAdmin&&(
               <div className="form-group">
-                <label className="form-label">Estado</label>
+                <label className="form-label">{t("enf_estado")}</label>
                 <select className="form-input form-select" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})}>
-                  <option value="reportada">Reportada</option>
-                  <option value="confirmada">Confirmada</option>
-                  <option value="resuelta">Resuelta</option>
+                  <option value="reportada">{t("enf_estado_reportada")}</option>
+                  <option value="confirmada">{t("enf_estado_confirmada")}</option>
+                  <option value="resuelta">{t("enf_estado_resuelta")}</option>
                 </select>
               </div>
             )}
             <div style={{background:"#EBF2FB",borderRadius:8,padding:"10px 12px",fontSize:13,color:"#2E5FA3",marginBottom:16}}>
-              ℹ Durante ausencia confirmada no es necesario fichar.
+              {t("enf_info")}
             </div>
             <div className="modal-actions">
-              <button className="btn" onClick={()=>setModal(false)}>Cancelar</button>
-              <button className="btn btn-primary" onClick={guardar} disabled={guardando}>{guardando?"Guardando...":"Guardar"}</button>
+              <button className="btn" onClick={()=>setModal(false)}>{t("cancelar")}</button>
+              <button className="btn btn-primary" onClick={guardar} disabled={guardando}>
+                {guardando?t("enf_guardando"):t("enf_guardar")}
+              </button>
             </div>
           </div>
         </div>
