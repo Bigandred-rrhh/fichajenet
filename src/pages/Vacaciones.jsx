@@ -1,28 +1,27 @@
 // src/pages/Vacaciones.jsx
 import React, { useEffect, useState } from "react";
-import {
-  collection, getDocs, addDoc, updateDoc, deleteDoc,
-  doc, query, orderBy, Timestamp, where
-} from "firebase/firestore";
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, Timestamp, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/useToast";
+import { useLang } from "../lib/LanguageContext";
 import { crearNotificacion } from "../lib/notificaciones";
-import { notificarAdmins } from "../lib/notificarAdmins";
 import { format } from "date-fns";
 
-const ESTADOS = {
-  pendiente: { label:"Pendiente",  clase:"badge-amber" },
-  aprobada:  { label:"Aprobada",   clase:"badge-green" },
-  rechazada: { label:"Rechazada",  clase:"badge-red"   },
-};
 const VACIA = { empleadoId:"", empleadoNombre:"", empresaId:"", empresaNombre:"",
   fechaInicio:"", fechaFin:"", dias:0, motivo:"", estado:"pendiente" };
 
 export default function Vacaciones() {
   const { user, perfil } = useAuth();
   const { showToast, ToastUI } = useToast();
-  const esAdmin = perfil?.rol === "admin" || perfil?.rol === "rrhh";
+  const { t } = useLang();
+  const esAdmin = perfil?.rol==="admin" || perfil?.rol==="rrhh";
+
+  const ESTADOS = {
+    pendiente: { label:t("vac_estado_pendiente"), clase:"badge-amber" },
+    aprobada:  { label:t("vac_estado_aprobada"),  clase:"badge-green" },
+    rechazada: { label:t("vac_estado_rechazada"), clase:"badge-red"   },
+  };
 
   const [solicitudes, setSolicitudes] = useState([]);
   const [empleados,   setEmpleados]   = useState([]);
@@ -83,8 +82,7 @@ export default function Vacaciones() {
   const onEmpleadoChange = (uid) => {
     const emp=empleados.find(e=>e.id===uid);
     const empresa=empresas.find(e=>e.id===emp?.empresaId);
-    setForm(f=>({...f,empleadoId:uid,empleadoNombre:emp?.nombre||"",
-      empresaId:emp?.empresaId||"",empresaNombre:empresa?.nombre||""}));
+    setForm(f=>({...f,empleadoId:uid,empleadoNombre:emp?.nombre||"",empresaId:emp?.empresaId||"",empresaNombre:empresa?.nombre||""}));
   };
 
   const guardar = async () => {
@@ -109,11 +107,11 @@ export default function Vacaciones() {
       } else {
         await addDoc(collection(db,"vacaciones"),datos);
         showToast("Solicitud enviada correctamente","success");
-        await notificarAdmins({
-  titulo: "Nueva solicitud de vacaciones 🏖️",
-  mensaje: perfil.nombre + " ha solicitado vacaciones del " + form.fechaInicio + " al " + form.fechaFin + " (" + dias + " días).",
-  tipo: "warning"
-});
+        await Promise.all(admins.map(a=>crearNotificacion({
+          usuarioId:a.id, titulo:"Nueva solicitud de vacaciones 🏖️",
+          mensaje:`${perfil.nombre} ha solicitado vacaciones del ${form.fechaInicio} al ${form.fechaFin} (${dias} días).`,
+          tipo:"warning",
+        })));
       }
       setModal(false); cargar();
     } catch(e) { showToast("Error: "+e.message,"error"); }
@@ -147,24 +145,23 @@ export default function Vacaciones() {
       {ToastUI}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
         <div>
-          <h1 style={{fontSize:22,fontWeight:700}}>Vacaciones</h1>
-          {pendientes>0&&esAdmin&&<span style={{fontSize:13,color:"#BA7517"}}>⚠ {pendientes} pendiente{pendientes>1?"s":""}</span>}
+          <h1 style={{fontSize:22,fontWeight:700}}>{t("vac_titulo")}</h1>
+          {pendientes>0&&esAdmin&&<span style={{fontSize:13,color:"#BA7517"}}>⚠ {pendientes} {pendientes>1?t("vac_pendientes_txt"):t("vac_pendiente_txt")}</span>}
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <select className="form-input form-select" style={{width:"auto",fontSize:13}}
             value={filtro} onChange={e=>setFiltro(e.target.value)}>
-            <option value="">Todos</option>
-            <option value="pendiente">Pendientes</option>
-            <option value="aprobada">Aprobadas</option>
-            <option value="rechazada">Rechazadas</option>
+            <option value="">{t("vac_opt_todos")}</option>
+            <option value="pendiente">{t("vac_opt_pendiente")}</option>
+            <option value="aprobada">{t("vac_opt_aprobada")}</option>
+            <option value="rechazada">{t("vac_opt_rechazada")}</option>
           </select>
-          <button className="btn btn-primary" onClick={()=>abrir(null)} style={{fontSize:13}}>+ Solicitar</button>
+          <button className="btn btn-primary" onClick={()=>abrir(null)} style={{fontSize:13}}>{t("vac_solicitar")}</button>
         </div>
       </div>
 
-      {/* Vista tarjetas — funciona bien en móvil y escritorio */}
-      {lista.length === 0 ? (
-        <div className="card" style={{textAlign:"center",padding:32,color:"#9CA3AF"}}>No hay solicitudes</div>
+      {lista.length===0 ? (
+        <div className="card" style={{textAlign:"center",padding:32,color:"#9CA3AF"}}>{t("vac_sin_datos")}</div>
       ) : (
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {lista.map(s=>(
@@ -180,16 +177,14 @@ export default function Vacaciones() {
                   {s.motivo&&<div style={{fontSize:12,color:"#6B7280",marginTop:4}}>{s.motivo}</div>}
                 </div>
                 <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
-                  <span className={`badge ${ESTADOS[s.estado]?.clase||"badge-gray"}`}>
-                    {ESTADOS[s.estado]?.label||s.estado}
-                  </span>
+                  <span className={`badge ${ESTADOS[s.estado]?.clase||"badge-gray"}`}>{ESTADOS[s.estado]?.label||s.estado}</span>
                   <div style={{display:"flex",gap:6}}>
                     <button className="btn" style={{padding:"4px 10px",fontSize:12}} onClick={()=>abrir(s)}>
-                      {esAdmin?"✏ Editar":"Ver"}
+                      {esAdmin?t("editar"):t("ver")}
                     </button>
                     {esAdmin&&s.estado==="pendiente"&&<>
                       <button className="btn btn-green" style={{padding:"4px 10px",fontSize:12}} onClick={()=>cambiarEstado(s,"aprobada")}>✓</button>
-                      <button className="btn btn-red" style={{padding:"4px 10px",fontSize:12}} onClick={()=>cambiarEstado(s,"rechazada")}>✗</button>
+                      <button className="btn btn-red"   style={{padding:"4px 10px",fontSize:12}} onClick={()=>cambiarEstado(s,"rechazada")}>✗</button>
                     </>}
                     {esAdmin&&<button className="btn btn-red" style={{padding:"4px 10px",fontSize:12}} onClick={()=>eliminar(s.id)}>🗑</button>}
                   </div>
@@ -203,57 +198,59 @@ export default function Vacaciones() {
       {modal&&(
         <div className="modal-overlay" onClick={()=>setModal(false)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">{editId?"Editar solicitud":"Nueva solicitud de vacaciones"}</div>
+            <div className="modal-title">{editId?t("vac_modal_editar"):t("vac_modal_nueva")}</div>
             {esAdmin?(
               <div className="form-group">
-                <label className="form-label">Empleado *</label>
+                <label className="form-label">{t("vac_empleado")}</label>
                 <select className="form-input form-select" value={form.empleadoId} onChange={e=>onEmpleadoChange(e.target.value)}>
-                  <option value="">Selecciona empleado...</option>
+                  <option value="">{t("vac_empleado_sel")}</option>
                   {empleados.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
                 </select>
               </div>
             ):(
               <div className="form-group">
-                <label className="form-label">Empleado</label>
+                <label className="form-label">{t("vac_empleado")}</label>
                 <input className="form-input" value={perfil.nombre} disabled style={{background:"#F9F9F9",color:"#9CA3AF"}}/>
               </div>
             )}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               <div className="form-group">
-                <label className="form-label">Fecha inicio *</label>
+                <label className="form-label">{t("vac_fecha_inicio")}</label>
                 <input className="form-input" type="date" value={form.fechaInicio}
                   onChange={e=>setForm({...form,fechaInicio:e.target.value,dias:calcularDias(e.target.value,form.fechaFin)})}/>
               </div>
               <div className="form-group">
-                <label className="form-label">Fecha fin *</label>
+                <label className="form-label">{t("vac_fecha_fin")}</label>
                 <input className="form-input" type="date" value={form.fechaFin}
                   onChange={e=>setForm({...form,fechaFin:e.target.value,dias:calcularDias(form.fechaInicio,e.target.value)})}/>
               </div>
             </div>
             {form.fechaInicio&&form.fechaFin&&(
               <div style={{background:"#EBF2FB",borderRadius:8,padding:"8px 12px",marginBottom:16,fontSize:13,color:"#2E5FA3"}}>
-                📅 {calcularDias(form.fechaInicio,form.fechaFin)} días naturales
+                📅 {calcularDias(form.fechaInicio,form.fechaFin)} {t("vac_dias_naturales")}
               </div>
             )}
             <div className="form-group">
-              <label className="form-label">Motivo (opcional)</label>
+              <label className="form-label">{t("vac_motivo")}</label>
               <textarea className="form-input" rows={2} value={form.motivo}
                 onChange={e=>setForm({...form,motivo:e.target.value})}
-                placeholder="Vacaciones de verano..." style={{resize:"vertical"}}/>
+                placeholder={t("vac_motivo_ph")} style={{resize:"vertical"}}/>
             </div>
             {esAdmin&&(
               <div className="form-group">
-                <label className="form-label">Estado</label>
+                <label className="form-label">{t("vac_estado")}</label>
                 <select className="form-input form-select" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})}>
-                  <option value="pendiente">Pendiente</option>
-                  <option value="aprobada">Aprobada</option>
-                  <option value="rechazada">Rechazada</option>
+                  <option value="pendiente">{t("vac_estado_pendiente")}</option>
+                  <option value="aprobada">{t("vac_estado_aprobada")}</option>
+                  <option value="rechazada">{t("vac_estado_rechazada")}</option>
                 </select>
               </div>
             )}
             <div className="modal-actions">
-              <button className="btn" onClick={()=>setModal(false)}>Cancelar</button>
-              <button className="btn btn-primary" onClick={guardar} disabled={guardando}>{guardando?"Guardando...":"Enviar solicitud"}</button>
+              <button className="btn" onClick={()=>setModal(false)}>{t("cancelar")}</button>
+              <button className="btn btn-primary" onClick={guardar} disabled={guardando}>
+                {guardando?t("vac_guardando"):t("vac_enviar")}
+              </button>
             </div>
           </div>
         </div>
