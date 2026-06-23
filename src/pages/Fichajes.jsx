@@ -33,9 +33,11 @@ function minsATexto(mins) {
 
 export default function Fichajes() {
   const { t } = useLang();
-  const [fichajes,    setFichajes]    = useState([]);
-  const [incidencias, setIncidencias] = useState([]);
-  const [empresas,    setEmpresas]    = useState([]);
+  const [fichajes,     setFichajes]     = useState([]);
+  const [incidencias,  setIncidencias]  = useState([]);
+  const [vacaciones,   setVacaciones]   = useState([]);
+  const [enfermedades, setEnfermedades] = useState([]);
+  const [empresas,     setEmpresas]     = useState([]);
   const [filtroEmp,   setFiltroEmp]   = useState("");
   const [mes,         setMes]         = useState(format(new Date(),"yyyy-MM"));
   const [cargando,    setCargando]    = useState(false);
@@ -56,14 +58,40 @@ export default function Fichajes() {
     const baseQuery = filtroEmp
       ? [where("empresaId","==",filtroEmp), where("timestamp",">=",Timestamp.fromDate(desde)), where("timestamp","<=",Timestamp.fromDate(hasta)), orderBy("timestamp","desc")]
       : [where("timestamp",">=",Timestamp.fromDate(desde)), where("timestamp","<=",Timestamp.fromDate(hasta)), orderBy("timestamp","desc")];
-    const [fSnap, iSnap] = await Promise.all([
+    const [fSnap, iSnap, vSnap, eSnap] = await Promise.all([
       getDocs(query(collection(db,"fichajes"), ...baseQuery)),
       getDocs(query(collection(db,"incidencias"), orderBy("creadaEn","desc"))),
+      getDocs(collection(db,"vacaciones")),
+      getDocs(collection(db,"enfermedades")),
     ]);
     setFichajes(fSnap.docs.map(d => ({ id:d.id, ...d.data() })));
     setIncidencias(iSnap.docs.map(d => ({ id:d.id, ...d.data() }))
       .filter(i => i.fecha && normFecha(i.fecha).slice(3) === mes.slice(5)+"/"+mes.slice(0,4)));
+    setVacaciones(vSnap.docs.map(d => ({ id:d.id, ...d.data() })));
+    setEnfermedades(eSnap.docs.map(d => ({ id:d.id, ...d.data() })));
     setCargando(false);
+  };
+
+  // Devuelve la ausencia (vacaciones o enfermedad) que cubre una fecha ISO "yyyy-MM-dd" para un empleado
+  const ausenciaDeDia = (usuarioId, fechaISO) => {
+    const vac = vacaciones.find(v =>
+      v.empleadoId === usuarioId &&
+      fechaISO >= v.fechaInicio && fechaISO <= v.fechaFin
+    );
+    if (vac) return { etiqueta: "🏖️ VACACIONES", estado: vac.estado, tipo: "vacaciones" };
+    const enf = enfermedades.find(e =>
+      e.empleadoId === usuarioId &&
+      fechaISO >= e.fechaInicio && (e.fechaFin ? fechaISO <= e.fechaFin : true)
+    );
+    if (enf) return { etiqueta: `🏥 ${enf.tipo?.toUpperCase() || "BAJA MÉDICA"}`, estado: enf.estado, tipo: "enfermedad" };
+    return null;
+  };
+
+  // Convierte fecha "dd/MM/yyyy" o "yyyy-MM-dd" a ISO "yyyy-MM-dd"
+  const toISO = f => {
+    if (!f) return "";
+    if (f.includes("-")) return f;
+    const [d,m,y] = f.split("/"); return `${y}-${m}-${d}`;
   };
 
   const calcularResumen = () => {
@@ -99,16 +127,15 @@ export default function Fichajes() {
       const entradaHora = dia.registros.find(r=>r.tipo==="entrada")?.hora || "—";
       const salidaHora  = [...dia.registros].reverse().find(r=>r.tipo==="salida")?.hora || "—";
       const todasIncs = incidencias.filter(i => i.empleadoId===dia.usuarioId && normFecha(i.fecha)===fechaNorm);
+      const ausencia = ausenciaDeDia(dia.usuarioId, toISO(dia.fecha));
       return {
         usuarioId:dia.usuarioId, nombre:dia.nombre, empresa:dia.empresa, fecha:dia.fecha,
         entrada:entradaHora, salida:salidaHora,
         total: minsATexto(totalMins) || (salidaHora==="—" ? t("fichajes_en_curso") : "—"),
-        incidencias:todasIncs, conIncAprobada:incsAprobadas.length>0
+        incidencias:todasIncs, conIncAprobada:incsAprobadas.length>0,
+        ausencia,
       };
-    }).sort((a,b) => {
-      const toISO = f => { if (f.includes("-")) return f; const [d,m,y]=f.split("/"); return `${y}-${m}-${d}`; };
-      return toISO(b.fecha).localeCompare(toISO(a.fecha));
-    });
+    }).sort((a,b) => toISO(b.fecha).localeCompare(toISO(a.fecha)));
   };
 
   const exportarExcel = () => {
@@ -181,18 +208,36 @@ export default function Fichajes() {
                 </td></tr>
               )}
               {resumen.map((r,i) => (
-                <tr key={i}>
+                <tr key={i} style={ r.ausencia ? { background: r.ausencia.tipo==="vacaciones" ? "#F0FDF4" : "#FFF7ED" } : {} }>
                   <td style={{ fontWeight:500 }}>{r.nombre}</td>
                   <td style={{ fontSize:13, color:"#6B7280" }}>{r.empresa}</td>
                   <td>
                     {r.fecha}
                     {r.conIncAprobada && <span title="Horas corregidas" style={{ marginLeft:6, fontSize:11, color:"#2E5FA3" }}>✎</span>}
                   </td>
-                  <td><span className="badge badge-green">{r.entrada}</span></td>
-                  <td><span className={`badge ${r.salida==="—"?"badge-gray":"badge-red"}`}>{r.salida}</span></td>
-                  <td style={{ fontWeight:600, color:r.total===t("fichajes_en_curso")?"#2E5FA3":r.total==="—"?"#9CA3AF":"#0F6E56" }}>
-                    {r.total}{r.conIncAprobada && <span style={{ fontSize:11, color:"#2E5FA3", marginLeft:4 }}>✎</span>}
-                  </td>
+                  {r.ausencia ? (
+                    // Fila especial de ausencia: ocupa columnas entrada/salida/total con la etiqueta
+                    <td colSpan={3} style={{ fontWeight:600, fontSize:13,
+                      color: r.ausencia.tipo==="vacaciones" ? "#0F6E56" : "#BA7517",
+                      textAlign:"center", letterSpacing:".03em"
+                    }}>
+                      {r.ausencia.etiqueta}
+                      <span style={{ marginLeft:8, fontSize:11, fontWeight:400,
+                        color: r.ausencia.estado==="aprobada"||r.ausencia.estado==="confirmada" ? "#0F6E56"
+                             : r.ausencia.estado==="resuelta" ? "#6B7280" : "#BA7517"
+                      }}>
+                        ({r.ausencia.estado})
+                      </span>
+                    </td>
+                  ) : (
+                    <>
+                      <td><span className="badge badge-green">{r.entrada}</span></td>
+                      <td><span className={`badge ${r.salida==="—"?"badge-gray":"badge-red"}`}>{r.salida}</span></td>
+                      <td style={{ fontWeight:600, color:r.total===t("fichajes_en_curso")?"#2E5FA3":r.total==="—"?"#9CA3AF":"#0F6E56" }}>
+                        {r.total}{r.conIncAprobada && <span style={{ fontSize:11, color:"#2E5FA3", marginLeft:4 }}>✎</span>}
+                      </td>
+                    </>
+                  )}
                   <td>
                     {r.incidencias.length>0
                       ? <span className="badge badge-amber" title={r.incidencias.map(i=>i.tipo).join(", ")}>⚠ {r.incidencias.length}</span>
