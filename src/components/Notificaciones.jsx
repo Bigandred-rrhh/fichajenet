@@ -1,6 +1,6 @@
 // src/components/Notificaciones.jsx
 import React, { useEffect, useState, useRef } from "react";
-import { obtenerNotificaciones, marcarLeida, marcarTodasLeidas } from "../lib/notificaciones";
+import { suscribirNotificaciones, marcarLeida, marcarTodasLeidas } from "../lib/notificaciones";
 import { deleteDoc, doc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuth } from "../lib/AuthContext";
@@ -11,17 +11,12 @@ export default function Notificaciones() {
   const [abierto, setAbierto] = useState(false);
   const ref = useRef(null);
 
-  const cargar = async () => {
-    if (!user) return;
-    const lista = await obtenerNotificaciones(user.uid);
-    setNotifs(lista);
-  };
-
+  // ✅ Suscripción en tiempo real — sustituye al polling cada 30s
   useEffect(() => {
-    cargar();
-    const t = setInterval(cargar, 30000);
-    return () => clearInterval(t);
-  }, [user]);
+    if (!user?.uid) return;
+    const unsub = suscribirNotificaciones(user.uid, setNotifs);
+    return () => unsub(); // limpieza al desmontar
+  }, [user?.uid]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -35,17 +30,17 @@ export default function Notificaciones() {
 
   const handleMarcarTodas = async () => {
     await marcarTodasLeidas(user.uid);
-    cargar();
+    // onSnapshot actualiza el estado automáticamente
   };
 
   const handleClick = async (n) => {
-    if (!n.leida) { await marcarLeida(n.id); cargar(); }
+    if (!n.leida) { await marcarLeida(n.id); }
   };
 
   const handleEliminar = async (e, id) => {
     e.stopPropagation();
     await deleteDoc(doc(db, "notificaciones", id));
-    cargar();
+    // onSnapshot actualiza el estado automáticamente
   };
 
   const iconoTipo  = (t) => ({ success:"✓", warning:"⚠", error:"✗", info:"ℹ" }[t] || "ℹ");
@@ -89,7 +84,7 @@ export default function Notificaciones() {
                 <button onClick={async () => {
                   if (!window.confirm("¿Eliminar todas las notificaciones?")) return;
                   await Promise.all(notifs.map(n => deleteDoc(doc(db,"notificaciones",n.id))));
-                  cargar();
+                  // onSnapshot actualiza el estado automáticamente
                 }} style={{
                   fontSize:12, color:"#C0392B", background:"none", border:"none", cursor:"pointer"
                 }}>Borrar todas</button>
