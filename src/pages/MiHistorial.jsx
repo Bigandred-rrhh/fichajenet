@@ -97,25 +97,118 @@ export default function MiHistorial() {
   })();
 
   const totalMes = dias.reduce((acc,d)=>acc+(d.totalMins||0),0);
-  const mesTexto = format(new Date(mes+"-01"),"MMMM yyyy",{locale:es});
+  const descargarPDF = () => {
+    // Safari iOS no soporta bien window.print() con elementos ocultos.
+    // Generamos el HTML del informe y lo abrimos en una nueva pestaña para imprimir/guardar.
+    const mesTexto = format(new Date(mes + "-01"), "MMMM yyyy", { locale: es });
+    const filasTabla = [...dias].reverse().map((d, i) => {
+      const bg = d.ausencia
+        ? (d.ausencia.tipo === "vacaciones" ? "#F0FDF4" : "#FFF7ED")
+        : (i % 2 === 0 ? "#fff" : "#F9FAFB");
+      const celdaCentral = d.ausencia
+        ? `<td colspan="3" style="padding:7px 12px;border-bottom:1px solid #F3F4F6;font-weight:600;font-size:12px;text-align:center;color:${d.ausencia.tipo === "vacaciones" ? "#0F6E56" : "#BA7517"}">
+            ${d.ausencia.etiqueta} <span style="font-weight:400;font-size:11px">(${d.ausencia.estado})</span>
+           </td>`
+        : `<td style="padding:7px 12px;border-bottom:1px solid #F3F4F6;color:#0F6E56;font-weight:500">${d.entrada}</td>
+           <td style="padding:7px 12px;border-bottom:1px solid #F3F4F6;color:#C0392B;font-weight:500">${d.salida}</td>
+           <td style="padding:7px 12px;border-bottom:1px solid #F3F4F6;font-weight:600">${minsATexto(d.totalMins) || "—"}</td>`;
+      return `<tr style="background:${bg}">
+        <td style="padding:7px 12px;border-bottom:1px solid #F3F4F6">${d.fecha}</td>
+        ${celdaCentral}
+        <td style="padding:7px 12px;border-bottom:1px solid #F3F4F6;font-size:12px;color:#BA7517">
+          ${d.incsDia.length > 0 ? d.incsDia.map(i => i.tipo).join(", ") : "—"}
+        </td>
+      </tr>`;
+    }).join("");
+
+    const filasIncs = incs.length > 0 ? incs.map((inc, i) => `
+      <tr style="background:${i % 2 === 0 ? "#fff" : "#FFFDF5"}">
+        <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6">${inc.fecha}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6">${inc.tipo}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6">${inc.horaCorrecta || "—"}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6">${inc.descripcion || "—"}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #F3F4F6;font-weight:500;color:${inc.estado === "aprobada" ? "#0F6E56" : inc.estado === "rechazada" ? "#C0392B" : "#BA7517"}">${inc.estado}</td>
+      </tr>`).join("") : "";
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+      <meta name="viewport" content="width=device-width,initial-scale=1"/>
+      <title>Registro Jornada ${mesTexto}</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 32px 40px; background: #fff; color: #1a1a1a; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13px; }
+        @media print { body { padding: 16px; } button { display: none !important; } }
+      </style>
+    </head><body>
+      <div style="border-bottom:3px solid #1B3A6B;padding-bottom:16px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <h2 style="font-size:22px;font-weight:700;color:#1B3A6B;margin:0">REGISTRO DE JORNADA LABORAL</h2>
+          <p style="font-size:13px;color:#6B7280;margin:4px 0 0">Real Decreto-Ley 8/2019 · Artículo 34.9 ET</p>
+        </div>
+        <div style="font-size:14px;font-weight:600;color:#1B3A6B;text-transform:capitalize">${mesTexto}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;background:#EBF2FB;border-radius:8px;padding:16px 20px">
+        <div>
+          <div style="font-size:11px;color:#6B7280;font-weight:600;margin-bottom:4px">EMPRESA</div>
+          <div style="font-weight:600">${empresa?.nombre || "—"}</div>
+          <div style="font-size:13px;color:#6B7280">CIF: ${empresa?.cif || "—"}</div>
+          <div style="font-size:13px;color:#6B7280">${empresa?.domicilio || ""}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#6B7280;font-weight:600;margin-bottom:4px">EMPLEADO</div>
+          <div style="font-weight:600">${perfil?.nombre}</div>
+          <div style="font-size:13px;color:#6B7280">${perfil?.categoria || "—"} · Jornada ${perfil?.jornada}</div>
+          <div style="font-size:13px;color:#6B7280">${perfil?.email}</div>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr style="background:#1B3A6B">
+            ${["Fecha","Entrada","Salida","Total horas","Incidencias"].map(h =>
+              `<th style="color:#fff;padding:8px 12px;text-align:left;font-weight:600;font-size:12px">${h}</th>`
+            ).join("")}
+          </tr>
+        </thead>
+        <tbody>${filasTabla}</tbody>
+        <tfoot>
+          <tr style="background:#1B3A6B">
+            <td colspan="3" style="padding:10px 12px;color:#fff;font-weight:600;text-align:right">TOTAL HORAS MES:</td>
+            <td style="padding:10px 12px;color:#fff;font-weight:700;font-size:15px">${minsATexto(totalMes) || "0h 00m"}</td>
+            <td style="padding:10px 12px;color:rgba(255,255,255,.6);font-size:12px">${dias.filter(d => d.totalMins > 0).length} días trabajados</td>
+          </tr>
+        </tfoot>
+      </table>
+      ${incs.length > 0 ? `
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:#1B3A6B">INCIDENCIAS DEL MES</div>
+      <table>
+        <thead>
+          <tr style="background:#FFF3CD">
+            ${["Fecha","Tipo","Hora correcta","Descripción","Estado"].map(h =>
+              `<th style="padding:6px 10px;text-align:left;color:#633806;font-weight:600">${h}</th>`
+            ).join("")}
+          </tr>
+        </thead>
+        <tbody>${filasIncs}</tbody>
+      </table>` : ""}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:40px">
+        ${["El/La Trabajador/a","Responsable RRHH"].map(f =>
+          `<div style="border-top:1px solid #CBD5E0;padding-top:8px;text-align:center">
+            <div style="font-size:11px;color:#9CA3AF;margin-bottom:50px">${f}</div>
+          </div>`
+        ).join("")}
+      </div>
+      <div style="margin-top:16px;background:#FFF3CD;border-radius:8px;padding:10px 14px;font-size:11px;color:#633806;line-height:1.6">
+        <strong>Nota legal:</strong> Documento generado conforme al RDL 8/2019. Los registros se conservarán durante 4 años a disposición de los trabajadores, sus representantes y la Inspección de Trabajo (art. 34.9 ET).
+      </div>
+      <script>window.onload = function() { window.print(); }</script>
+    </body></html>`;
+
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url  = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+  };
 
   return (
     <div>
-      <style>{`
-        @media print {
-          .no-print { display:none!important; }
-          .sidebar { display:none!important; }
-          .mobile-nav { display:none!important; }
-          .desktop-topbar { display:none!important; }
-          nav { display:none!important; }
-          body { background:#fff; margin:0; padding:0; }
-          .main-wrapper { margin-left:0!important; }
-          .main-content { padding:0!important; }
-          .print-doc { display:block!important; }
-          * { -webkit-print-color-adjust:exact!important; print-color-adjust:exact!important; }
-        }
-        .print-doc { display:none; }
-      `}</style>
 
       <div className="no-print">
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
@@ -123,7 +216,7 @@ export default function MiHistorial() {
           <div style={{display:"flex",gap:10}}>
             <input className="form-input" type="month" value={mes} onChange={e=>setMes(e.target.value)} style={{width:170}}/>
             {dias.length>0&&(
-              <button className="btn btn-primary" onClick={()=>{ document.querySelector('.print-doc').style.display='block'; window.print(); setTimeout(()=>document.querySelector('.print-doc').style.display='none',500); }}>
+              <button className="btn btn-primary" onClick={descargarPDF}>
                 {t("hist_descargar")}
               </button>
             )}
@@ -192,115 +285,6 @@ export default function MiHistorial() {
         </div>
       </div>
 
-      {/* DOCUMENTO IMPRIMIBLE */}
-      <div className="print-doc" style={{background:"#fff",padding:"32px 40px",fontFamily:"Arial,sans-serif"}}>
-        <div style={{borderBottom:"3px solid #1B3A6B",paddingBottom:16,marginBottom:24}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-            <div>
-              <h2 style={{fontSize:22,fontWeight:700,color:"#1B3A6B",margin:0}}>REGISTRO DE JORNADA LABORAL</h2>
-              <p style={{fontSize:13,color:"#6B7280",margin:"4px 0 0"}}>Real Decreto-Ley 8/2019 · Artículo 34.9 ET</p>
-            </div>
-            <div style={{fontSize:14,fontWeight:600,color:"#1B3A6B",textTransform:"capitalize"}}>{mesTexto}</div>
-          </div>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:24,background:"#EBF2FB",borderRadius:8,padding:"16px 20px"}}>
-          <div>
-            <div style={{fontSize:11,color:"#6B7280",fontWeight:600,marginBottom:4}}>EMPRESA</div>
-            <div style={{fontWeight:600}}>{empresa?.nombre||"—"}</div>
-            <div style={{fontSize:13,color:"#6B7280"}}>CIF: {empresa?.cif||"—"}</div>
-            <div style={{fontSize:13,color:"#6B7280"}}>{empresa?.domicilio||""}</div>
-          </div>
-          <div>
-            <div style={{fontSize:11,color:"#6B7280",fontWeight:600,marginBottom:4}}>EMPLEADO</div>
-            <div style={{fontWeight:600}}>{perfil?.nombre}</div>
-            <div style={{fontSize:13,color:"#6B7280"}}>{perfil?.categoria||"—"} · Jornada {perfil?.jornada}</div>
-            <div style={{fontSize:13,color:"#6B7280"}}>{perfil?.email}</div>
-          </div>
-        </div>
-        <table style={{width:"100%",borderCollapse:"collapse",marginBottom:20,fontSize:13}}>
-          <thead>
-            <tr style={{background:"#1B3A6B"}}>
-              {["Fecha","Entrada","Salida","Total horas","Incidencias"].map(h=>(
-                <th key={h} style={{color:"#fff",padding:"8px 12px",textAlign:"left",fontWeight:600,fontSize:12}}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {[...dias].reverse().map((d,i)=>(
-              <tr key={i} style={{background: d.ausencia
-                ? (d.ausencia.tipo==="vacaciones" ? "#F0FDF4" : "#FFF7ED")
-                : (i%2===0?"#fff":"#F9FAFB")}}>
-                <td style={{padding:"7px 12px",borderBottom:"1px solid #F3F4F6"}}>{d.fecha}</td>
-                {d.ausencia ? (
-                  <td colSpan={3} style={{padding:"7px 12px",borderBottom:"1px solid #F3F4F6",
-                    fontWeight:600, fontSize:12,
-                    color: d.ausencia.tipo==="vacaciones" ? "#0F6E56" : "#BA7517",
-                    textAlign:"center"
-                  }}>
-                    {d.ausencia.etiqueta}
-                    {" "}
-                    <span style={{fontWeight:400,fontSize:11}}>({d.ausencia.estado})</span>
-                  </td>
-                ) : (
-                  <>
-                    <td style={{padding:"7px 12px",borderBottom:"1px solid #F3F4F6",color:"#0F6E56",fontWeight:500}}>{d.entrada}</td>
-                    <td style={{padding:"7px 12px",borderBottom:"1px solid #F3F4F6",color:"#C0392B",fontWeight:500}}>{d.salida}</td>
-                    <td style={{padding:"7px 12px",borderBottom:"1px solid #F3F4F6",fontWeight:600}}>{minsATexto(d.totalMins)||"—"}</td>
-                  </>
-                )}
-                <td style={{padding:"7px 12px",borderBottom:"1px solid #F3F4F6",fontSize:12,color:"#BA7517"}}>
-                  {d.incsDia.length>0?d.incsDia.map(i=>i.tipo).join(", "):"—"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr style={{background:"#1B3A6B"}}>
-              <td colSpan={3} style={{padding:"10px 12px",color:"#fff",fontWeight:600,textAlign:"right"}}>TOTAL HORAS MES:</td>
-              <td style={{padding:"10px 12px",color:"#fff",fontWeight:700,fontSize:15}}>{minsATexto(totalMes)||"0h 00m"}</td>
-              <td style={{padding:"10px 12px",color:"rgba(255,255,255,.6)",fontSize:12}}>{dias.filter(d=>d.totalMins>0).length} días trabajados</td>
-            </tr>
-          </tfoot>
-        </table>
-        {incs.length>0&&(
-          <div style={{marginBottom:24}}>
-            <div style={{fontWeight:600,fontSize:13,marginBottom:8,color:"#1B3A6B"}}>INCIDENCIAS DEL MES</div>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-              <thead>
-                <tr style={{background:"#FFF3CD"}}>
-                  {["Fecha","Tipo","Hora correcta","Descripción","Estado"].map(h=>(
-                    <th key={h} style={{padding:"6px 10px",textAlign:"left",color:"#633806",fontWeight:600}}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {incs.map((inc,i)=>(
-                  <tr key={i} style={{background:i%2===0?"#fff":"#FFFDF5"}}>
-                    <td style={{padding:"6px 10px",borderBottom:"1px solid #F3F4F6"}}>{inc.fecha}</td>
-                    <td style={{padding:"6px 10px",borderBottom:"1px solid #F3F4F6"}}>{inc.tipo}</td>
-                    <td style={{padding:"6px 10px",borderBottom:"1px solid #F3F4F6"}}>{inc.horaCorrecta||"—"}</td>
-                    <td style={{padding:"6px 10px",borderBottom:"1px solid #F3F4F6"}}>{inc.descripcion||"—"}</td>
-                    <td style={{padding:"6px 10px",borderBottom:"1px solid #F3F4F6",fontWeight:500,
-                      color:inc.estado==="aprobada"?"#0F6E56":inc.estado==="rechazada"?"#C0392B":"#BA7517"}}>
-                      {inc.estado}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:40,marginTop:40}}>
-          {["El/La Trabajador/a","Responsable RRHH"].map(f=>(
-            <div key={f} style={{borderTop:"1px solid #CBD5E0",paddingTop:8,textAlign:"center"}}>
-              <div style={{fontSize:11,color:"#9CA3AF",marginBottom:50}}>{f}</div>
-            </div>
-          ))}
-        </div>
-        <div style={{marginTop:16,background:"#FFF3CD",borderRadius:8,padding:"10px 14px",fontSize:11,color:"#633806",lineHeight:1.6}}>
-          <strong>Nota legal:</strong> Documento generado conforme al RDL 8/2019. Los registros se conservarán durante 4 años a disposición de los trabajadores, sus representantes y la Inspección de Trabajo (art. 34.9 ET).
-        </div>
-      </div>
     </div>
   );
 }
