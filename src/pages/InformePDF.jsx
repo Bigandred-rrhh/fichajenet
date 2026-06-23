@@ -20,8 +20,15 @@ function minsATexto(m) {
 }
 
 // ─── Lógica reutilizable: procesar fichajes + incidencias de UN empleado ───────
+// Convierte "dd/MM/yyyy" o "yyyy-MM-dd" a ISO "yyyy-MM-dd"
+function toISO(f) {
+  if (!f) return "";
+  if (f.includes("-")) return f;
+  const [d, m, y] = f.split("/"); return `${y}-${m}-${d}`;
+}
+
 async function procesarEmpleado(empId, desde, hasta) {
-  const [fSnap, iSnap] = await Promise.all([
+  const [fSnap, iSnap, vSnap, eSnap] = await Promise.all([
     getDocs(query(
       collection(db, "fichajes"),
       where("usuarioId", "==", empId),
@@ -34,10 +41,23 @@ async function procesarEmpleado(empId, desde, hasta) {
       where("empleadoId", "==", empId),
       orderBy("creadaEn", "desc")
     )),
+    getDocs(query(collection(db, "vacaciones"),   where("empleadoId", "==", empId))),
+    getDocs(query(collection(db, "enfermedades"), where("empleadoId", "==", empId))),
   ]);
 
-  const fichajes = fSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const incs     = iSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const fichajes    = fSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const incs        = iSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const vacaciones  = vSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const enfermedades = eSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  // Devuelve la ausencia que cubre una fecha ISO para este empleado
+  const ausenciaDeDia = (fechaISO) => {
+    const vac = vacaciones.find(v => fechaISO >= v.fechaInicio && fechaISO <= v.fechaFin);
+    if (vac) return { etiqueta: "🏖️ VACACIONES", estado: vac.estado, tipo: "vacaciones" };
+    const enf = enfermedades.find(e => fechaISO >= e.fechaInicio && (e.fechaFin ? fechaISO <= e.fechaFin : true));
+    if (enf) return { etiqueta: `🏥 ${enf.tipo?.toUpperCase() || "BAJA MÉDICA"}`, estado: enf.estado, tipo: "enfermedad" };
+    return null;
+  };
 
   const mapa = {};
   fichajes.forEach(f => {
@@ -77,11 +97,12 @@ async function procesarEmpleado(empId, desde, hasta) {
 
       const entrada = regs.find(r => r.tipo === "entrada")?.hora || "—";
       const salida  = [...regs].reverse().find(r => r.tipo === "salida")?.hora || "—";
-      return { fecha: normFecha(fecha), entrada, salida, totalMins, incidencias: incsDia };
+      const ausencia = ausenciaDeDia(toISO(normFecha(fecha)));
+      return { fecha: normFecha(fecha), entrada, salida, totalMins, incidencias: incsDia, ausencia };
     });
 
   const totalMes = diasOrdenados.reduce((a, d) => a + d.totalMins, 0);
-  return { diasOrdenados, totalMes, incs };
+  return { diasOrdenados, totalMes, incs, vacaciones, enfermedades };
 }
 
 // ─── Bloque de informe de un empleado (reutilizable para individual y para "todos") ──
@@ -154,11 +175,27 @@ function InformeEmpleado({ datos, mesTexto, pageBreak = false }) {
               </td>
             </tr>
           ) : datos.diasOrdenados.map((d, i) => (
-            <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "#F9FAFB" }}>
+            <tr key={i} style={{ background: d.ausencia
+              ? (d.ausencia.tipo === "vacaciones" ? "#F0FDF4" : "#FFF7ED")
+              : (i % 2 === 0 ? "#fff" : "#F9FAFB")
+            }}>
               <td style={{ padding: "7px 12px", borderBottom: "1px solid #F3F4F6" }}>{d.fecha}</td>
-              <td style={{ padding: "7px 12px", borderBottom: "1px solid #F3F4F6", color: "#0F6E56", fontWeight: 500 }}>{d.entrada}</td>
-              <td style={{ padding: "7px 12px", borderBottom: "1px solid #F3F4F6", color: "#C0392B", fontWeight: 500 }}>{d.salida}</td>
-              <td style={{ padding: "7px 12px", borderBottom: "1px solid #F3F4F6", fontWeight: 600 }}>{minsATexto(d.totalMins)}</td>
+              {d.ausencia ? (
+                <td colSpan={3} style={{
+                  padding: "7px 12px", borderBottom: "1px solid #F3F4F6",
+                  fontWeight: 600, fontSize: 12, textAlign: "center",
+                  color: d.ausencia.tipo === "vacaciones" ? "#0F6E56" : "#BA7517",
+                }}>
+                  {d.ausencia.etiqueta}{" "}
+                  <span style={{ fontWeight: 400, fontSize: 11 }}>({d.ausencia.estado})</span>
+                </td>
+              ) : (
+                <>
+                  <td style={{ padding: "7px 12px", borderBottom: "1px solid #F3F4F6", color: "#0F6E56", fontWeight: 500 }}>{d.entrada}</td>
+                  <td style={{ padding: "7px 12px", borderBottom: "1px solid #F3F4F6", color: "#C0392B", fontWeight: 500 }}>{d.salida}</td>
+                  <td style={{ padding: "7px 12px", borderBottom: "1px solid #F3F4F6", fontWeight: 600 }}>{minsATexto(d.totalMins)}</td>
+                </>
+              )}
               <td style={{ padding: "7px 12px", borderBottom: "1px solid #F3F4F6", fontSize: 12, color: "#BA7517" }}>
                 {d.incidencias.length > 0 ? d.incidencias.map(i => i.tipo).join(", ") : "—"}
               </td>
@@ -204,6 +241,66 @@ function InformeEmpleado({ datos, mesTexto, pageBreak = false }) {
                   <td style={{ padding: "6px 10px", borderBottom: "1px solid #F3F4F6", fontWeight: 500,
                     color: inc.estado === "aprobada" ? "#0F6E56" : inc.estado === "rechazada" ? "#C0392B" : "#BA7517" }}>
                     {inc.estado}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Vacaciones del mes */}
+      {datos.vacaciones?.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, color: "#0F6E56" }}>🏖️ VACACIONES</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: "#F0FDF4" }}>
+                {["Desde", "Hasta", "Días", "Motivo", "Estado"].map(h => (
+                  <th key={h} style={{ padding: "6px 10px", textAlign: "left", color: "#0F6E56", fontWeight: 600 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {datos.vacaciones.map((v, i) => (
+                <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "#F0FDF4" }}>
+                  <td style={{ padding: "6px 10px", borderBottom: "1px solid #F3F4F6" }}>{v.fechaInicio}</td>
+                  <td style={{ padding: "6px 10px", borderBottom: "1px solid #F3F4F6" }}>{v.fechaFin}</td>
+                  <td style={{ padding: "6px 10px", borderBottom: "1px solid #F3F4F6" }}>{v.dias}</td>
+                  <td style={{ padding: "6px 10px", borderBottom: "1px solid #F3F4F6" }}>{v.motivo || "—"}</td>
+                  <td style={{ padding: "6px 10px", borderBottom: "1px solid #F3F4F6", fontWeight: 500,
+                    color: v.estado === "aprobada" ? "#0F6E56" : v.estado === "rechazada" ? "#C0392B" : "#BA7517" }}>
+                    {v.estado}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Enfermedades/bajas del mes */}
+      {datos.enfermedades?.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, color: "#BA7517" }}>🏥 AUSENCIAS POR ENFERMEDAD</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: "#FFF7ED" }}>
+                {["Tipo", "Desde", "Hasta", "Descripción", "Estado"].map(h => (
+                  <th key={h} style={{ padding: "6px 10px", textAlign: "left", color: "#BA7517", fontWeight: 600 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {datos.enfermedades.map((e, i) => (
+                <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "#FFF7ED" }}>
+                  <td style={{ padding: "6px 10px", borderBottom: "1px solid #F3F4F6" }}>{e.tipo}</td>
+                  <td style={{ padding: "6px 10px", borderBottom: "1px solid #F3F4F6" }}>{e.fechaInicio}</td>
+                  <td style={{ padding: "6px 10px", borderBottom: "1px solid #F3F4F6" }}>{e.fechaFin || "En curso"}</td>
+                  <td style={{ padding: "6px 10px", borderBottom: "1px solid #F3F4F6" }}>{e.descripcion || "—"}</td>
+                  <td style={{ padding: "6px 10px", borderBottom: "1px solid #F3F4F6", fontWeight: 500,
+                    color: e.estado === "confirmada" || e.estado === "resuelta" ? "#0F6E56" : "#BA7517" }}>
+                    {e.estado}
                   </td>
                 </tr>
               ))}
@@ -275,9 +372,9 @@ export default function InformePDF() {
     const desde = startOfMonth(new Date(y, m - 1));
     const hasta = endOfMonth(new Date(y, m - 1));
 
-    const { diasOrdenados, totalMes, incs } = await procesarEmpleado(empleado, desde, hasta);
+    const { diasOrdenados, totalMes, incs, vacaciones, enfermedades } = await procesarEmpleado(empleado, desde, hasta);
 
-    setDatos({ emp, empresa: emp2, mes, diasOrdenados, totalMes, incs });
+    setDatos({ emp, empresa: emp2, mes, diasOrdenados, totalMes, incs, vacaciones, enfermedades });
     setCargando(false);
   };
 
@@ -300,8 +397,8 @@ export default function InformePDF() {
     for (let i = 0; i < lista.length; i++) {
       const emp = lista[i];
       setProgreso({ actual: i + 1, total: lista.length });
-      const { diasOrdenados, totalMes, incs } = await procesarEmpleado(emp.id, desde, hasta);
-      resultados.push({ emp, empresa: emp2, mes, diasOrdenados, totalMes, incs });
+      const { diasOrdenados, totalMes, incs, vacaciones, enfermedades } = await procesarEmpleado(emp.id, desde, hasta);
+      resultados.push({ emp, empresa: emp2, mes, diasOrdenados, totalMes, incs, vacaciones, enfermedades });
     }
 
     setDatosMulti(resultados);
