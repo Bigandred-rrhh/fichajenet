@@ -102,6 +102,15 @@ function Layout({ children, rol }) {
             <NavLink to="/incidencias" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
               <span className="nav-icon">⚠️</span> {t("nav_incidencias")}
             </NavLink>
+            <NavLink to="/vacaciones" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
+              <span className="nav-icon">🏖️</span> {t("nav_vacaciones")}
+            </NavLink>
+            <NavLink to="/enfermedad" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
+              <span className="nav-icon">🏥</span> {t("nav_enfermedad")}
+            </NavLink>
+            <NavLink to="/nominas" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
+              <span className="nav-icon">💰</span> {t("nav_nominas")}
+            </NavLink>
           </>}
           <div className="nav-section-label">{t("nav_cuenta")}</div>
           <NavLink to="/cambiar-password" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
