@@ -6,6 +6,8 @@ import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/useToast";
 import { useLang } from "../lib/LanguageContext";
 import { format } from "date-fns";
+import { crearNotificacion } from "../lib/notificaciones";
+import { notificarAdmins } from "../lib/notificarAdmins";
 
 const TIPOS = ["Olvido de fichaje de entrada","Olvido de fichaje de salida","Error en la hora fichada","Ausencia justificada","Baja médica","Vacaciones","Otro"];
 
@@ -92,15 +94,38 @@ export default function Incidencias() {
         creadaPor:editId?form.creadaPor:perfil.nombre,
         actualizadaEn:Timestamp.now(),
       };
-      if (editId) { await updateDoc(doc(db,"incidencias",editId),datos); showToast("Incidencia actualizada","success"); }
-      else        { await addDoc(collection(db,"incidencias"),datos);    showToast("Incidencia registrada","success"); }
+      if (editId) {
+        await updateDoc(doc(db,"incidencias",editId),datos);
+        showToast("Incidencia actualizada","success");
+      } else {
+        await addDoc(collection(db,"incidencias"),datos);
+        showToast("Incidencia registrada","success");
+        // ✅ Notificar a todos los admins/rrhh
+        await notificarAdmins({
+          titulo: "Nueva incidencia registrada ⚠️",
+          mensaje: `${perfil.nombre} ha registrado una incidencia: ${form.tipo} (${form.fecha}).`,
+          tipo: "warning",
+        });
+      }
       setModal(false); cargar();
     } catch(e) { showToast("Error: "+e.message,"error"); }
     setGuardando(false);
   };
 
-  const cambiarEstado = async (id,estado) => {
-    await updateDoc(doc(db,"incidencias",id),{estado,actualizadaEn:Timestamp.now()});
+  const cambiarEstado = async (id, estado) => {
+    const inc = incidencias.find(i => i.id === id);
+    await updateDoc(doc(db,"incidencias",id),{estado, actualizadaEn:Timestamp.now()});
+    // ✅ Notificar al empleado del resultado
+    if (inc) {
+      await crearNotificacion({
+        usuarioId: inc.empleadoId,
+        titulo: `Incidencia ${estado === "aprobada" ? "aprobada ✓" : "rechazada ✗"}`,
+        mensaje: estado === "aprobada"
+          ? `Tu incidencia "${inc.tipo}" del ${inc.fecha} ha sido aprobada.`
+          : `Tu incidencia "${inc.tipo}" del ${inc.fecha} ha sido rechazada.`,
+        tipo: estado === "aprobada" ? "success" : "error",
+      });
+    }
     showToast(`Incidencia ${estado}`,"success"); cargar();
   };
 
