@@ -6,6 +6,7 @@ import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/useToast";
 import { useLang } from "../lib/LanguageContext";
 import { crearNotificacion } from "../lib/notificaciones";
+import { notificarAdmins } from "../lib/notificarAdmins";
 import { format } from "date-fns";
 
 const TIPOS = ["Baja médica","Cita médica","Enfermedad sin baja","Accidente laboral","Otro"];
@@ -92,8 +93,19 @@ export default function Enfermedad() {
         creadaEn:editId?form.creadaEn:Timestamp.now(),
         creadaPor:editId?form.creadaPor:perfil.nombre,
       };
-      if (editId) { await updateDoc(doc(db,"enfermedades",editId),datos); showToast("Registro actualizado","success"); }
-      else        { await addDoc(collection(db,"enfermedades"),datos);    showToast("Ausencia reportada correctamente","success"); }
+      if (editId) {
+        await updateDoc(doc(db,"enfermedades",editId),datos);
+        showToast("Registro actualizado","success");
+      } else {
+        await addDoc(collection(db,"enfermedades"),datos);
+        showToast("Ausencia reportada correctamente","success");
+        // ✅ Notificar a todos los admins/rrhh
+        await notificarAdmins({
+          titulo: "Nueva ausencia por enfermedad 🏥",
+          mensaje: `${perfil.nombre} ha reportado una ausencia: ${form.tipo} desde el ${form.fechaInicio}${form.fechaFin ? " hasta el " + form.fechaFin : ""}.`,
+          tipo: "warning",
+        });
+      }
       setModal(false); cargar();
     } catch(e) { showToast("Error: "+e.message,"error"); }
     setGuardando(false);
