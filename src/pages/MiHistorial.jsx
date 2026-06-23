@@ -19,10 +19,12 @@ export default function MiHistorial() {
   const { user, perfil } = useAuth();
   const { t } = useLang();
   const [mes,      setMes]      = useState(format(new Date(),"yyyy-MM"));
-  const [fichajes, setFichajes] = useState([]);
-  const [incs,     setIncs]     = useState([]);
-  const [empresa,  setEmpresa]  = useState(null);
-  const [cargando, setCargando] = useState(false);
+  const [fichajes,     setFichajes]     = useState([]);
+  const [incs,         setIncs]         = useState([]);
+  const [vacaciones,   setVacaciones]   = useState([]);
+  const [enfermedades, setEnfermedades] = useState([]);
+  const [empresa,      setEmpresa]      = useState(null);
+  const [cargando,     setCargando]     = useState(false);
 
   const cargar = useCallback(async () => {
     if (!user) return;
@@ -30,7 +32,7 @@ export default function MiHistorial() {
     const [y,m] = mes.split("-").map(Number);
     const desde = startOfMonth(new Date(y,m-1));
     const hasta = endOfMonth(new Date(y,m-1));
-    const [fSnap, iSnap, eSnap] = await Promise.all([
+    const [fSnap, iSnap, eSnap, vSnap, enfSnap] = await Promise.all([
       getDocs(query(collection(db,"fichajes"),
         where("usuarioId","==",user.uid),
         where("timestamp",">=",Timestamp.fromDate(desde)),
@@ -38,16 +40,34 @@ export default function MiHistorial() {
         orderBy("timestamp","asc"))),
       getDocs(query(collection(db,"incidencias"), where("empleadoId","==",user.uid))),
       getDocs(collection(db,"empresas")),
+      getDocs(query(collection(db,"vacaciones"), where("empleadoId","==",user.uid))),
+      getDocs(query(collection(db,"enfermedades"), where("empleadoId","==",user.uid))),
     ]);
     setFichajes(fSnap.docs.map(d=>({id:d.id,...d.data()})));
     setIncs(iSnap.docs.map(d=>({id:d.id,...d.data()}))
       .filter(i => i.fecha && normFecha(i.fecha).slice(3)===mes.slice(5)+"/"+mes.slice(0,4)));
+    setVacaciones(vSnap.docs.map(d=>({id:d.id,...d.data()})));
+    setEnfermedades(enfSnap.docs.map(d=>({id:d.id,...d.data()})));
     const emp = eSnap.docs.find(d => d.id===perfil?.empresaId);
     if (emp) setEmpresa({id:emp.id,...emp.data()});
     setCargando(false);
   }, [user, mes, perfil]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  const toISO = f => {
+    if (!f) return "";
+    if (f.includes("-")) return f;
+    const [d,m,y] = f.split("/"); return `${y}-${m}-${d}`;
+  };
+
+  const ausenciaDeDia = (fechaISO) => {
+    const vac = vacaciones.find(v => fechaISO >= v.fechaInicio && fechaISO <= v.fechaFin);
+    if (vac) return { etiqueta: "🏖️ VACACIONES", estado: vac.estado, tipo: "vacaciones" };
+    const enf = enfermedades.find(e => fechaISO >= e.fechaInicio && (e.fechaFin ? fechaISO <= e.fechaFin : true));
+    if (enf) return { etiqueta: `🏥 ${enf.tipo?.toUpperCase() || "BAJA MÉDICA"}`, estado: enf.estado, tipo: "enfermedad" };
+    return null;
+  };
 
   const dias = (() => {
     const mapa = {};
@@ -71,7 +91,8 @@ export default function MiHistorial() {
       for (let i=0;i<evs.length-1;i++) { if (evs[i].tipo==="entrada"&&evs[i+1].tipo==="salida") { totalMins+=evs[i+1].mins-evs[i].mins; i++; } }
       const entrada=regs.find(r=>r.tipo==="entrada")?.hora||"—";
       const salida=[...regs].reverse().find(r=>r.tipo==="salida")?.hora||"—";
-      return { fecha:normFecha(fecha), entrada, salida, totalMins, incsDia };
+      const ausencia = ausenciaDeDia(toISO(normFecha(fecha)));
+      return { fecha:normFecha(fecha), entrada, salida, totalMins, incsDia, ausencia };
     });
   })();
 
@@ -137,13 +158,27 @@ export default function MiHistorial() {
                   <tr><td colSpan={5} style={{textAlign:"center",color:"#9CA3AF",padding:24}}>{t("hist_sin_datos")}</td></tr>
                 )}
                 {dias.map((d,i)=>(
-                  <tr key={i}>
+                  <tr key={i} style={ d.ausencia ? { background: d.ausencia.tipo==="vacaciones" ? "#F0FDF4" : "#FFF7ED" } : {} }>
                     <td>{d.fecha}</td>
-                    <td><span className="badge badge-green">{d.entrada}</span></td>
-                    <td><span className={`badge ${d.salida==="—"?"badge-gray":"badge-red"}`}>{d.salida}</span></td>
-                    <td style={{fontWeight:600,color:d.totalMins>0?"#0F6E56":"#9CA3AF"}}>
-                      {minsATexto(d.totalMins)||(d.salida==="—"?t("hist_en_curso"):"—")}
-                    </td>
+                    {d.ausencia ? (
+                      <td colSpan={3} style={{ fontWeight:600, fontSize:13, textAlign:"center",
+                        color: d.ausencia.tipo==="vacaciones" ? "#0F6E56" : "#BA7517"
+                      }}>
+                        {d.ausencia.etiqueta}
+                        <span style={{ marginLeft:8, fontSize:11, fontWeight:400,
+                          color: d.ausencia.estado==="aprobada"||d.ausencia.estado==="confirmada" ? "#0F6E56"
+                               : d.ausencia.estado==="resuelta" ? "#6B7280" : "#BA7517"
+                        }}>({d.ausencia.estado})</span>
+                      </td>
+                    ) : (
+                      <>
+                        <td><span className="badge badge-green">{d.entrada}</span></td>
+                        <td><span className={`badge ${d.salida==="—"?"badge-gray":"badge-red"}`}>{d.salida}</span></td>
+                        <td style={{fontWeight:600,color:d.totalMins>0?"#0F6E56":"#9CA3AF"}}>
+                          {minsATexto(d.totalMins)||(d.salida==="—"?t("hist_en_curso"):"—")}
+                        </td>
+                      </>
+                    )}
                     <td>
                       {d.incsDia.length>0
                         ?<span className="badge badge-amber">⚠ {d.incsDia.length}</span>
@@ -192,11 +227,27 @@ export default function MiHistorial() {
           </thead>
           <tbody>
             {[...dias].reverse().map((d,i)=>(
-              <tr key={i} style={{background:i%2===0?"#fff":"#F9FAFB"}}>
+              <tr key={i} style={{background: d.ausencia
+                ? (d.ausencia.tipo==="vacaciones" ? "#F0FDF4" : "#FFF7ED")
+                : (i%2===0?"#fff":"#F9FAFB")}}>
                 <td style={{padding:"7px 12px",borderBottom:"1px solid #F3F4F6"}}>{d.fecha}</td>
-                <td style={{padding:"7px 12px",borderBottom:"1px solid #F3F4F6",color:"#0F6E56",fontWeight:500}}>{d.entrada}</td>
-                <td style={{padding:"7px 12px",borderBottom:"1px solid #F3F4F6",color:"#C0392B",fontWeight:500}}>{d.salida}</td>
-                <td style={{padding:"7px 12px",borderBottom:"1px solid #F3F4F6",fontWeight:600}}>{minsATexto(d.totalMins)||"—"}</td>
+                {d.ausencia ? (
+                  <td colSpan={3} style={{padding:"7px 12px",borderBottom:"1px solid #F3F4F6",
+                    fontWeight:600, fontSize:12,
+                    color: d.ausencia.tipo==="vacaciones" ? "#0F6E56" : "#BA7517",
+                    textAlign:"center"
+                  }}>
+                    {d.ausencia.etiqueta}
+                    {" "}
+                    <span style={{fontWeight:400,fontSize:11}}>({d.ausencia.estado})</span>
+                  </td>
+                ) : (
+                  <>
+                    <td style={{padding:"7px 12px",borderBottom:"1px solid #F3F4F6",color:"#0F6E56",fontWeight:500}}>{d.entrada}</td>
+                    <td style={{padding:"7px 12px",borderBottom:"1px solid #F3F4F6",color:"#C0392B",fontWeight:500}}>{d.salida}</td>
+                    <td style={{padding:"7px 12px",borderBottom:"1px solid #F3F4F6",fontWeight:600}}>{minsATexto(d.totalMins)||"—"}</td>
+                  </>
+                )}
                 <td style={{padding:"7px 12px",borderBottom:"1px solid #F3F4F6",fontSize:12,color:"#BA7517"}}>
                   {d.incsDia.length>0?d.incsDia.map(i=>i.tipo).join(", "):"—"}
                 </td>
