@@ -6,6 +6,7 @@ import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/useToast";
 import { useLang } from "../lib/LanguageContext";
 import { crearNotificacion } from "../lib/notificaciones";
+import { notificarAdmins } from "../lib/notificarAdmins";
 import { format } from "date-fns";
 
 const VACIA = { empleadoId:"", empleadoNombre:"", empresaId:"", empresaNombre:"",
@@ -107,11 +108,12 @@ export default function Vacaciones() {
       } else {
         await addDoc(collection(db,"vacaciones"),datos);
         showToast("Solicitud enviada correctamente","success");
-        await Promise.all(admins.map(a=>crearNotificacion({
-          usuarioId:a.id, titulo:"Nueva solicitud de vacaciones 🏖️",
-          mensaje:`${perfil.nombre} ha solicitado vacaciones del ${form.fechaInicio} al ${form.fechaFin} (${dias} días).`,
-          tipo:"warning",
-        })));
+        // ✅ Usar notificarAdmins con fallback robusto en lugar del array local
+        await notificarAdmins({
+          titulo: "Nueva solicitud de vacaciones 🏖️",
+          mensaje: `${perfil.nombre} ha solicitado vacaciones del ${form.fechaInicio} al ${form.fechaFin} (${dias} días).`,
+          tipo: "warning",
+        });
       }
       setModal(false); cargar();
     } catch(e) { showToast("Error: "+e.message,"error"); }
