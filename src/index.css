@@ -230,5 +230,8 @@ body {
 }
 @media (max-width: 768px) {
   .mobile-show { display: flex !important; }
-  .desktop-topbar { display: none !important; }
+  /* Ocultar topbar en móvil para admins (tienen barra inferior)
+     pero mostrarla para empleados (necesitan el botón volver y notificaciones) */
+  body:not(.es-empleado) .desktop-topbar { display: none !important; }
+  body.es-empleado .desktop-topbar { display: flex !important; }
 }
