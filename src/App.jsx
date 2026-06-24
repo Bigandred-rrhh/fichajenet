@@ -1,6 +1,6 @@
 // src/App.jsx
 import React, { useEffect } from "react";
-import { Routes, Route, NavLink, Navigate } from "react-router-dom";
+import { Routes, Route, NavLink, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "./lib/AuthContext";
 import { useLang } from "./lib/LanguageContext";
 import Login           from "./pages/Login";
@@ -42,8 +42,14 @@ function BotonIdioma({ toggleLang, lang, style = {} }) {
 function Layout({ children, rol }) {
   const { perfil, logout } = useAuth();
   const { lang, toggleLang, t } = useLang();
+  const location = useLocation();
+  const navigate  = useNavigate();
   const esAdmin    = rol === "admin" || rol === "rrhh";
   const esEmpleado = rol === "empleado";
+
+  // Página de inicio según rol
+  const paginaInicio = esEmpleado ? "/fichar" : "/dashboard";
+  const estaEnInicio = location.pathname === paginaInicio;
 
   useEffect(() => {
     if (esEmpleado) document.body.classList.add("es-empleado");
@@ -102,15 +108,6 @@ function Layout({ children, rol }) {
             <NavLink to="/incidencias" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
               <span className="nav-icon">⚠️</span> {t("nav_incidencias")}
             </NavLink>
-            <NavLink to="/vacaciones" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-              <span className="nav-icon">🏖️</span> {t("nav_vacaciones")}
-            </NavLink>
-            <NavLink to="/enfermedad" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-              <span className="nav-icon">🏥</span> {t("nav_enfermedad")}
-            </NavLink>
-            <NavLink to="/nominas" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-              <span className="nav-icon">💰</span> {t("nav_nominas")}
-            </NavLink>
           </>}
           <div className="nav-section-label">{t("nav_cuenta")}</div>
           <NavLink to="/cambiar-password" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
@@ -131,12 +128,27 @@ function Layout({ children, rol }) {
       </nav>
 
       <div className="main-wrapper">
-        {/* Topbar escritorio */}
+        {/* Topbar escritorio y móvil PWA */}
         <div className="desktop-topbar" style={{
-          display:"flex", justifyContent:"flex-end", alignItems:"center",
+          display:"flex", justifyContent:"space-between", alignItems:"center",
           gap:"8px", padding:"10px 24px", background:"#fff",
           borderBottom:"1px solid #E5E7EB", position:"sticky", top:0, zIndex:50
         }}>
+          {/* Botón volver — solo visible en móvil PWA cuando no estamos en inicio */}
+          {!estaEnInicio ? (
+            <button
+              onClick={() => navigate(-1)}
+              style={{
+                display:"flex", alignItems:"center", gap:6,
+                background:"none", border:"none", cursor:"pointer",
+                fontSize:14, fontWeight:600, color:"#1B3A6B", padding:"4px 0"
+              }}
+            >
+              ← {t("nav_volver") || "Volver"}
+            </button>
+          ) : (
+            <div />
+          )}
           <Notificaciones />
         </div>
         <main className="main-content">{children}</main>
