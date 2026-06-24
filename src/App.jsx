@@ -134,22 +134,23 @@ function Layout({ children, rol }) {
           gap:"8px", padding:"10px 24px", background:"#fff",
           borderBottom:"1px solid #E5E7EB", position:"sticky", top:0, zIndex:50
         }}>
-          {/* Botón volver — solo visible en móvil PWA cuando no estamos en inicio */}
+          {/* Botón volver — solo cuando no estamos en inicio */}
           {!estaEnInicio ? (
             <button
               onClick={() => navigate(-1)}
               style={{
-                display:"flex", alignItems:"center", gap:6,
                 background:"none", border:"none", cursor:"pointer",
-                fontSize:14, fontWeight:600, color:"#1B3A6B", padding:"4px 0"
+                fontSize:22, color:"#1B3A6B", padding:"4px 8px",
+                lineHeight:1, display:"flex", alignItems:"center"
               }}
             >
-              ← {t("nav_volver") || "Volver"}
+              ←
             </button>
           ) : (
             <div />
           )}
-          <Notificaciones />
+          {/* Campana solo cuando no estamos en inicio (en /fichar ya aparece dentro de la página) */}
+          {!estaEnInicio && <Notificaciones />}
         </div>
         <main className="main-content">{children}</main>
       </div>
