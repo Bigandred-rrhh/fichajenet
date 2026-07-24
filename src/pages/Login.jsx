@@ -1,4 +1,3 @@
-Aquí tienes el contenido completo:
 jsx// src/pages/Login.jsx
 import React, { useState } from "react";
 import { useAuth } from "../lib/AuthContext";
