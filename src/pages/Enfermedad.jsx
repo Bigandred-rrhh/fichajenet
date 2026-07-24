@@ -1,28 +1,29 @@
 // src/pages/Enfermedad.jsx
 import React, { useEffect, useState } from "react";
-import {
-  collection, getDocs, addDoc, updateDoc, deleteDoc,
-  doc, query, orderBy, Timestamp, where
-} from "firebase/firestore";
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, Timestamp, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/useToast";
+import { useLang } from "../lib/LanguageContext";
 import { crearNotificacion } from "../lib/notificaciones";
+import { notificarAdmins } from "../lib/notificarAdmins";
 import { format } from "date-fns";
 
 const TIPOS = ["Baja médica","Cita médica","Enfermedad sin baja","Accidente laboral","Otro"];
-const ESTADOS = {
-  reportada:  { label:"Reportada",  clase:"badge-amber" },
-  confirmada: { label:"Confirmada", clase:"badge-blue"  },
-  resuelta:   { label:"Resuelta",   clase:"badge-green" },
-};
 const VACIA = { empleadoId:"", empleadoNombre:"", empresaId:"", empresaNombre:"",
   fechaInicio:"", fechaFin:"", tipo:"Baja médica", descripcion:"", estado:"reportada" };
 
 export default function Enfermedad() {
   const { user, perfil } = useAuth();
   const { showToast, ToastUI } = useToast();
-  const esAdmin = perfil?.rol === "admin" || perfil?.rol === "rrhh";
+  const { t } = useLang();
+  const esAdmin = perfil?.rol==="admin" || perfil?.rol==="rrhh";
+
+  const ESTADOS = {
+    reportada:  { label:t("enf_estado_reportada"),  clase:"badge-amber" },
+    confirmada: { label:t("enf_estado_confirmada"), clase:"badge-blue"  },
+    resuelta:   { label:t("enf_estado_resuelta"),   clase:"badge-green" },
+  };
 
   const [bajas,     setBajas]     = useState([]);
   const [empleados, setEmpleados] = useState([]);
@@ -38,7 +39,6 @@ export default function Enfermedad() {
   const cargar = async () => {
     if (!perfil) return;
     try {
-      // Sin orderBy compuesto para empleado — evita índice
       const q = esAdmin
         ? query(collection(db,"enfermedades"), orderBy("creadaEn","desc"))
         : query(collection(db,"enfermedades"), where("empleadoId","==",user.uid));
@@ -75,8 +75,7 @@ export default function Enfermedad() {
   const onEmpleadoChange = (uid) => {
     const emp=empleados.find(e=>e.id===uid);
     const empresa=empresas.find(e=>e.id===emp?.empresaId);
-    setForm(f=>({...f,empleadoId:uid,empleadoNombre:emp?.nombre||"",
-      empresaId:emp?.empresaId||"",empresaNombre:empresa?.nombre||""}));
+    setForm(f=>({...f,empleadoId:uid,empleadoNombre:emp?.nombre||"",empresaId:emp?.empresaId||"",empresaNombre:empresa?.nombre||""}));
   };
 
   const guardar = async () => {
@@ -100,13 +99,12 @@ export default function Enfermedad() {
       } else {
         await addDoc(collection(db,"enfermedades"),datos);
         showToast("Ausencia reportada correctamente","success");
-        // Notificar a todos los admins
-        await Promise.all(admins.map(a=>crearNotificacion({
-          usuarioId:a.id,
-          titulo:"Nueva ausencia por enfermedad 🏥",
-          mensaje:`${perfil.nombre} ha reportado una ausencia: ${form.tipo} desde el ${form.fechaInicio}.`,
-          tipo:"warning",
-        })));
+        // ✅ Notificar a todos los admins/rrhh
+        await notificarAdmins({
+          titulo: "Nueva ausencia por enfermedad 🏥",
+          mensaje: `${perfil.nombre} ha reportado una ausencia: ${form.tipo} desde el ${form.fechaInicio}${form.fechaFin ? " hasta el " + form.fechaFin : ""}.`,
+          tipo: "warning",
+        });
       }
       setModal(false); cargar();
     } catch(e) { showToast("Error: "+e.message,"error"); }
@@ -119,12 +117,11 @@ export default function Enfermedad() {
       usuarioId:baja.empleadoId,
       titulo:`Ausencia ${estado==="confirmada"?"confirmada ✓":"resuelta ✓"}`,
       mensaje:estado==="confirmada"
-        ?`Tu ausencia por ${baja.tipo} desde el ${baja.fechaInicio} ha sido confirmada. No necesitas fichar durante este período.`
-        :`Tu ausencia por ${baja.tipo} ha sido marcada como resuelta. Ya puedes fichar normalmente.`,
+        ?`Tu ausencia por ${baja.tipo} desde el ${baja.fechaInicio} ha sido confirmada. No necesitas fichar.`
+        :`Tu ausencia por ${baja.tipo} ha sido resuelta. Ya puedes fichar normalmente.`,
       tipo:"info",
     });
-    showToast(`Baja ${estado}`,"success");
-    cargar();
+    showToast(`Baja ${estado}`,"success"); cargar();
   };
 
   const eliminar = async (id) => {
@@ -138,98 +135,103 @@ export default function Enfermedad() {
   return (
     <div>
       {ToastUI}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
         <div>
-          <h1 style={{fontSize:22,fontWeight:700}}>Enfermedad y ausencias</h1>
-          {reportadas>0&&esAdmin&&<span style={{fontSize:13,color:"#BA7517"}}>⚠ {reportadas} ausencia{reportadas>1?"s":""} por revisar</span>}
+          <h1 style={{fontSize:22,fontWeight:700}}>{t("enf_titulo")}</h1>
+          {reportadas>0&&esAdmin&&<span style={{fontSize:13,color:"#BA7517"}}>⚠ {reportadas} {t("enf_por_revisar")}</span>}
         </div>
-        <button className="btn btn-primary" onClick={()=>abrir(null)}>+ Reportar ausencia</button>
+        <button className="btn btn-primary" onClick={()=>abrir(null)} style={{fontSize:13}}>{t("enf_reportar")}</button>
       </div>
-      <div className="card">
-        <table className="tabla">
-          <thead>
-            <tr><th>Empleado</th>{esAdmin&&<th>Empresa</th>}<th>Tipo</th><th>Desde</th><th>Hasta</th><th>Estado</th><th>Acciones</th></tr>
-          </thead>
-          <tbody>
-            {bajas.length===0&&<tr><td colSpan={esAdmin?7:6} style={{textAlign:"center",color:"#9CA3AF",padding:24}}>Sin registros</td></tr>}
-            {bajas.map(b=>(
-              <tr key={b.id}>
-                <td style={{fontWeight:500}}>{b.empleadoNombre}</td>
-                {esAdmin&&<td style={{fontSize:13,color:"#6B7280"}}>{b.empresaNombre}</td>}
-                <td style={{fontSize:13}}>{b.tipo}</td>
-                <td>{b.fechaInicio}</td><td>{b.fechaFin||"—"}</td>
-                <td><span className={`badge ${ESTADOS[b.estado]?.clase||"badge-gray"}`}>{ESTADOS[b.estado]?.label||b.estado}</span></td>
-                <td>
-                  <div style={{display:"flex",gap:6}}>
-                    <button className="btn" style={{padding:"4px 9px",fontSize:12}} onClick={()=>abrir(b)}>{esAdmin?"✏ Editar":"Ver"}</button>
-                    {esAdmin&&b.estado==="reportada"&&<button className="btn btn-primary" style={{padding:"4px 9px",fontSize:12}} onClick={()=>cambiarEstado(b,"confirmada")}>Confirmar</button>}
-                    {esAdmin&&b.estado==="confirmada"&&<button className="btn btn-green" style={{padding:"4px 9px",fontSize:12}} onClick={()=>cambiarEstado(b,"resuelta")}>Resolver</button>}
-                    {esAdmin&&<button className="btn btn-red" style={{padding:"4px 9px",fontSize:12}} onClick={()=>eliminar(b.id)}>🗑</button>}
+
+      {bajas.length===0 ? (
+        <div className="card" style={{textAlign:"center",padding:32,color:"#9CA3AF"}}>{t("enf_sin_datos")}</div>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {bajas.map(b=>(
+            <div key={b.id} className="card" style={{padding:"14px 16px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:600,fontSize:15}}>{b.empleadoNombre}</div>
+                  {esAdmin&&<div style={{fontSize:12,color:"#6B7280"}}>{b.empresaNombre}</div>}
+                  <div style={{fontSize:13,color:"#374151",marginTop:4}}>🏥 {b.tipo}</div>
+                  <div style={{fontSize:13,color:"#6B7280",marginTop:2}}>{b.fechaInicio}{b.fechaFin?" → "+b.fechaFin:""}</div>
+                  {b.descripcion&&<div style={{fontSize:12,color:"#9CA3AF",marginTop:2}}>{b.descripcion}</div>}
+                </div>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
+                  <span className={`badge ${ESTADOS[b.estado]?.clase||"badge-gray"}`}>{ESTADOS[b.estado]?.label||b.estado}</span>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                    <button className="btn" style={{padding:"4px 10px",fontSize:12}} onClick={()=>abrir(b)}>
+                      {esAdmin?t("editar"):t("ver")}
+                    </button>
+                    {esAdmin&&b.estado==="reportada"&&<button className="btn btn-primary" style={{padding:"4px 10px",fontSize:12}} onClick={()=>cambiarEstado(b,"confirmada")}>{t("enf_confirmar")}</button>}
+                    {esAdmin&&b.estado==="confirmada"&&<button className="btn btn-green"   style={{padding:"4px 10px",fontSize:12}} onClick={()=>cambiarEstado(b,"resuelta")}>{t("enf_resolver")}</button>}
+                    {esAdmin&&<button className="btn btn-red" style={{padding:"4px 10px",fontSize:12}} onClick={()=>eliminar(b.id)}>🗑</button>}
                   </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {modal&&(
         <div className="modal-overlay" onClick={()=>setModal(false)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">{editId?"Editar ausencia":"Reportar ausencia por enfermedad"}</div>
+            <div className="modal-title">{editId?t("enf_modal_editar"):t("enf_modal_nueva")}</div>
             {esAdmin?(
               <div className="form-group">
-                <label className="form-label">Empleado *</label>
+                <label className="form-label">{t("enf_empleado")}</label>
                 <select className="form-input form-select" value={form.empleadoId} onChange={e=>onEmpleadoChange(e.target.value)}>
-                  <option value="">Selecciona empleado...</option>
+                  <option value="">{t("enf_empleado_sel")}</option>
                   {empleados.map(e=><option key={e.id} value={e.id}>{e.nombre}</option>)}
                 </select>
               </div>
             ):(
               <div className="form-group">
-                <label className="form-label">Empleado</label>
+                <label className="form-label">{t("enf_empleado")}</label>
                 <input className="form-input" value={perfil.nombre} disabled style={{background:"#F9F9F9",color:"#9CA3AF"}}/>
               </div>
             )}
             <div className="form-group">
-              <label className="form-label">Tipo de ausencia *</label>
+              <label className="form-label">{t("enf_tipo")}</label>
               <select className="form-input form-select" value={form.tipo} onChange={e=>setForm({...form,tipo:e.target.value})}>
-                {TIPOS.map(t=><option key={t} value={t}>{t}</option>)}
+                {TIPOS.map(tp=><option key={tp} value={tp}>{tp}</option>)}
               </select>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               <div className="form-group">
-                <label className="form-label">Fecha inicio *</label>
-                <input className="form-input" type="date" value={form.fechaInicio}
-                  onChange={e=>setForm({...form,fechaInicio:e.target.value})}/>
+                <label className="form-label">{t("enf_fecha_inicio")}</label>
+                <input className="form-input" type="date" value={form.fechaInicio} onChange={e=>setForm({...form,fechaInicio:e.target.value})}/>
               </div>
               <div className="form-group">
-                <label className="form-label">Fecha fin (si se conoce)</label>
-                <input className="form-input" type="date" value={form.fechaFin}
-                  onChange={e=>setForm({...form,fechaFin:e.target.value})}/>
+                <label className="form-label">{t("enf_fecha_fin")}</label>
+                <input className="form-input" type="date" value={form.fechaFin} onChange={e=>setForm({...form,fechaFin:e.target.value})}/>
               </div>
             </div>
             <div className="form-group">
-              <label className="form-label">Descripción</label>
+              <label className="form-label">{t("enf_descripcion")}</label>
               <textarea className="form-input" rows={2} value={form.descripcion}
                 onChange={e=>setForm({...form,descripcion:e.target.value})}
-                placeholder="Detalles adicionales..." style={{resize:"vertical"}}/>
+                placeholder={t("enf_desc_ph")} style={{resize:"vertical"}}/>
             </div>
             {esAdmin&&(
               <div className="form-group">
-                <label className="form-label">Estado</label>
+                <label className="form-label">{t("enf_estado")}</label>
                 <select className="form-input form-select" value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})}>
-                  <option value="reportada">Reportada</option>
-                  <option value="confirmada">Confirmada</option>
-                  <option value="resuelta">Resuelta</option>
+                  <option value="reportada">{t("enf_estado_reportada")}</option>
+                  <option value="confirmada">{t("enf_estado_confirmada")}</option>
+                  <option value="resuelta">{t("enf_estado_resuelta")}</option>
                 </select>
               </div>
             )}
             <div style={{background:"#EBF2FB",borderRadius:8,padding:"10px 12px",fontSize:13,color:"#2E5FA3",marginBottom:16}}>
-              ℹ Durante el período de ausencia confirmada no será necesario fichar.
+              {t("enf_info")}
             </div>
             <div className="modal-actions">
-              <button className="btn" onClick={()=>setModal(false)}>Cancelar</button>
-              <button className="btn btn-primary" onClick={guardar} disabled={guardando}>{guardando?"Guardando...":"Guardar"}</button>
+              <button className="btn" onClick={()=>setModal(false)}>{t("cancelar")}</button>
+              <button className="btn btn-primary" onClick={guardar} disabled={guardando}>
+                {guardando?t("enf_guardando"):t("enf_guardar")}
+              </button>
             </div>
           </div>
         </div>
