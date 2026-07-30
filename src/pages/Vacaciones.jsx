@@ -12,6 +12,85 @@ import { format } from "date-fns";
 const VACIA = { empleadoId:"", empleadoNombre:"", empresaId:"", empresaNombre:"",
   fechaInicio:"", fechaFin:"", dias:0, motivo:"", estado:"pendiente" };
 
+const DIAS_DERECHO = 22;
+const ANO_ACTUAL = new Date().getFullYear();
+
+// Calcula dias laborables (lunes-viernes) entre dos fechas inclusive
+function diasLaborables(fechaInicio, fechaFin) {
+  if (!fechaInicio || !fechaFin) return 0;
+  const d1 = new Date(fechaInicio);
+  const d2 = new Date(fechaFin);
+  if (d2 < d1) return 0;
+  let count = 0;
+  const cur = new Date(d1);
+  while (cur <= d2) {
+    const dia = cur.getDay();
+    if (dia !== 0 && dia !== 6) count++;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return count;
+}
+
+// Contador de dias para un empleado dado el array de solicitudes
+function contadorEmpleado(solicitudes, empleadoId) {
+  const delAno = solicitudes.filter(s =>
+    s.empleadoId === empleadoId &&
+    (s.estado === "pendiente" || s.estado === "aprobada") &&
+    s.fechaInicio?.startsWith(String(ANO_ACTUAL))
+  );
+  const reservados = delAno.reduce((acc, s) => acc + (diasLaborables(s.fechaInicio, s.fechaFin) || 0), 0);
+  const aprobados  = delAno.filter(s => s.estado === "aprobada")
+                           .reduce((acc, s) => acc + (diasLaborables(s.fechaInicio, s.fechaFin) || 0), 0);
+  const restantes  = Math.max(0, DIAS_DERECHO - reservados);
+  return { reservados, aprobados, restantes };
+}
+
+function ContadorVacaciones({ reservados, aprobados, restantes, compact = false }) {
+  const pct = Math.min(100, Math.round((reservados / DIAS_DERECHO) * 100));
+  const colorBarra = restantes <= 5 ? "#C0392B" : restantes <= 10 ? "#BA7517" : "#0F6E56";
+
+  if (compact) {
+    return (
+      <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:12 }}>
+        <div style={{ flex:1, background:"#F3F4F6", borderRadius:20, height:6, minWidth:60 }}>
+          <div style={{ width:`${pct}%`, background:colorBarra, borderRadius:20, height:6, transition:"width .3s" }} />
+        </div>
+        <span style={{ color:colorBarra, fontWeight:700, whiteSpace:"nowrap" }}>
+          {restantes}d libres
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background:"#F9FAFB", border:"1px solid #E5E7EB", borderRadius:10, padding:"12px 16px", marginBottom:20 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+        <span style={{ fontSize:13, fontWeight:600, color:"#374151" }}>
+          Vacaciones {ANO_ACTUAL}
+        </span>
+        <span style={{ fontSize:12, color:"#6B7280" }}>
+          {reservados} / {DIAS_DERECHO} dias laborables
+        </span>
+      </div>
+      <div style={{ background:"#E5E7EB", borderRadius:20, height:8, marginBottom:10 }}>
+        <div style={{ width:`${pct}%`, background:colorBarra, borderRadius:20, height:8, transition:"width .3s" }} />
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+        {[
+          { label:"Aprobados", value:aprobados, color:"#0F6E56", bg:"#E1F5EE" },
+          { label:"Pendientes", value:reservados - aprobados, color:"#BA7517", bg:"#FFF3CD" },
+          { label:"Disponibles", value:restantes, color:colorBarra, bg: restantes <= 5 ? "#FDECEA" : restantes <= 10 ? "#FFF3CD" : "#E1F5EE" },
+        ].map(item => (
+          <div key={item.label} style={{ background:item.bg, borderRadius:8, padding:"8px 10px", textAlign:"center" }}>
+            <div style={{ fontSize:18, fontWeight:700, color:item.color }}>{item.value}</div>
+            <div style={{ fontSize:11, color:"#6B7280" }}>{item.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Vacaciones() {
   const { user, perfil } = useAuth();
   const { showToast, ToastUI } = useToast();
@@ -27,7 +106,6 @@ export default function Vacaciones() {
   const [solicitudes, setSolicitudes] = useState([]);
   const [empleados,   setEmpleados]   = useState([]);
   const [empresas,    setEmpresas]    = useState([]);
-  const [admins,      setAdmins]      = useState([]);
   const [modal,       setModal]       = useState(false);
   const [form,        setForm]        = useState(VACIA);
   const [editId,      setEditId]      = useState(null);
@@ -53,7 +131,6 @@ export default function Vacaciones() {
       setEmpresas(eSnap.docs.map(d=>({id:d.id,...d.data()})));
       const usuarios = uSnap ? uSnap.docs.map(d=>({id:d.id,...d.data()})) : [];
       setEmpleados(usuarios.filter(u=>u.rol!=="admin"));
-      setAdmins(usuarios.filter(u=>u.rol==="admin"||u.rol==="rrhh"));
     } catch(e) { console.error(e); showToast("Error cargando datos","error"); }
   };
 
@@ -92,6 +169,15 @@ export default function Vacaciones() {
     }
     const dias=calcularDias(form.fechaInicio,form.fechaFin);
     if (dias<=0) { showToast("La fecha fin debe ser posterior al inicio","error"); return; }
+    // Validar que no supere los dias disponibles
+    if (!editId) {
+      const { restantes } = contadorEmpleado(solicitudes, form.empleadoId);
+      const labSolicitud = diasLaborables(form.fechaInicio, form.fechaFin);
+      if (labSolicitud > restantes) {
+        showToast(`Solo quedan ${restantes} dias laborables disponibles este ano.`, "error");
+        return;
+      }
+    }
     setGuardando(true);
     try {
       const datos = {
@@ -108,10 +194,9 @@ export default function Vacaciones() {
       } else {
         await addDoc(collection(db,"vacaciones"),datos);
         showToast("Solicitud enviada correctamente","success");
-        // ✅ Usar notificarAdmins con fallback robusto en lugar del array local
         await notificarAdmins({
-          titulo: "Nueva solicitud de vacaciones 🏖️",
-          mensaje: `${perfil.nombre} ha solicitado vacaciones del ${form.fechaInicio} al ${form.fechaFin} (${dias} días).`,
+          titulo: "Nueva solicitud de vacaciones",
+          mensaje: `${perfil.nombre} ha solicitado vacaciones del ${form.fechaInicio} al ${form.fechaFin} (${dias} dias).`,
           tipo: "warning",
         });
       }
@@ -124,9 +209,9 @@ export default function Vacaciones() {
     await updateDoc(doc(db,"vacaciones",sol.id),{estado,actualizadaEn:Timestamp.now()});
     await crearNotificacion({
       usuarioId:sol.empleadoId,
-      titulo:`Vacaciones ${estado==="aprobada"?"aprobadas ✓":"rechazadas ✗"}`,
+      titulo:`Vacaciones ${estado==="aprobada"?"aprobadas":"rechazadas"}`,
       mensaje:estado==="aprobada"
-        ?`Tus vacaciones del ${sol.fechaInicio} al ${sol.fechaFin} (${sol.dias} días) han sido aprobadas.`
+        ?`Tus vacaciones del ${sol.fechaInicio} al ${sol.fechaFin} (${sol.dias} dias) han sido aprobadas.`
         :`Tu solicitud de vacaciones del ${sol.fechaInicio} al ${sol.fechaFin} ha sido rechazada.`,
       tipo:estado==="aprobada"?"success":"error",
     });
@@ -134,13 +219,22 @@ export default function Vacaciones() {
   };
 
   const eliminar = async (id) => {
-    if (!window.confirm("¿Eliminar esta solicitud?")) return;
+    if (!window.confirm("Eliminar esta solicitud?")) return;
     await deleteDoc(doc(db,"vacaciones",id));
     showToast("Solicitud eliminada","success"); cargar();
   };
 
   const lista = filtro ? solicitudes.filter(s=>s.estado===filtro) : solicitudes;
   const pendientes = solicitudes.filter(s=>s.estado==="pendiente").length;
+
+  // Para admin: agrupar empleados con sus contadores
+  const resumenEmpleados = esAdmin ? empleados.map(emp => ({
+    ...emp,
+    ...contadorEmpleado(solicitudes, emp.id),
+  })) : [];
+
+  // Para empleado: su propio contador
+  const miContador = !esAdmin ? contadorEmpleado(solicitudes, user?.uid) : null;
 
   return (
     <div>
@@ -162,6 +256,39 @@ export default function Vacaciones() {
         </div>
       </div>
 
+      {/* Contador para el empleado */}
+      {!esAdmin && miContador && (
+        <ContadorVacaciones {...miContador} />
+      )}
+
+      {/* Resumen de contadores por empleado para admin */}
+      {esAdmin && resumenEmpleados.length > 0 && (
+        <div className="card" style={{marginBottom:20,padding:"14px 18px"}}>
+          <div style={{fontWeight:600,fontSize:14,marginBottom:12,color:"#374151"}}>
+            Resumen de vacaciones {ANO_ACTUAL}
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {resumenEmpleados.map(emp => (
+              <div key={emp.id} style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                <div style={{minWidth:160,fontSize:13,fontWeight:500}}>{emp.nombre}</div>
+                <div style={{fontSize:11,color:"#6B7280",minWidth:80}}>{emp.empresaNombre||""}</div>
+                <div style={{flex:1,minWidth:200}}>
+                  <ContadorVacaciones
+                    reservados={emp.reservados}
+                    aprobados={emp.aprobados}
+                    restantes={emp.restantes}
+                    compact
+                  />
+                </div>
+                <div style={{fontSize:12,color:"#6B7280",whiteSpace:"nowrap"}}>
+                  {emp.aprobados}✓ {emp.reservados - emp.aprobados > 0 ? `+ ${emp.reservados - emp.aprobados} pend.` : ""} / {DIAS_DERECHO}d
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {lista.length===0 ? (
         <div className="card" style={{textAlign:"center",padding:32,color:"#9CA3AF"}}>{t("vac_sin_datos")}</div>
       ) : (
@@ -175,6 +302,9 @@ export default function Vacaciones() {
                   <div style={{fontSize:13,color:"#374151",marginTop:4}}>
                     📅 {s.fechaInicio} → {s.fechaFin}
                     <span className="badge badge-blue" style={{marginLeft:8}}>{s.dias}d</span>
+                    <span style={{marginLeft:8,fontSize:11,color:"#6B7280"}}>
+                      ({diasLaborables(s.fechaInicio,s.fechaFin)} lab.)
+                    </span>
                   </div>
                   {s.motivo&&<div style={{fontSize:12,color:"#6B7280",marginTop:4}}>{s.motivo}</div>}
                 </div>
@@ -215,6 +345,19 @@ export default function Vacaciones() {
                 <input className="form-input" value={perfil.nombre} disabled style={{background:"#F9F9F9",color:"#9CA3AF"}}/>
               </div>
             )}
+            {/* Mini contador en el modal para que el empleado sepa cuanto le queda */}
+            {form.empleadoId && (() => {
+              const c = contadorEmpleado(solicitudes, form.empleadoId);
+              return (
+                <div style={{background:"#EBF2FB",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:13,
+                  display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{color:"#2E5FA3"}}>Dias disponibles {ANO_ACTUAL}</span>
+                  <strong style={{color: c.restantes<=5?"#C0392B":c.restantes<=10?"#BA7517":"#0F6E56"}}>
+                    {c.restantes} / {DIAS_DERECHO} dias lab.
+                  </strong>
+                </div>
+              );
+            })()}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               <div className="form-group">
                 <label className="form-label">{t("vac_fecha_inicio")}</label>
@@ -229,7 +372,8 @@ export default function Vacaciones() {
             </div>
             {form.fechaInicio&&form.fechaFin&&(
               <div style={{background:"#EBF2FB",borderRadius:8,padding:"8px 12px",marginBottom:16,fontSize:13,color:"#2E5FA3"}}>
-                📅 {calcularDias(form.fechaInicio,form.fechaFin)} {t("vac_dias_naturales")}
+                📅 {calcularDias(form.fechaInicio,form.fechaFin)} dias naturales
+                · {diasLaborables(form.fechaInicio,form.fechaFin)} laborables
               </div>
             )}
             <div className="form-group">
