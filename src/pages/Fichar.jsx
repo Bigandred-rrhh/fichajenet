@@ -71,17 +71,37 @@ export default function Fichar() {
   const cargarRegistrosHoy = useCallback(async () => {
     if (!user) return;
     try {
-      const hoy = new Date(); hoy.setHours(0,0,0,0);
+      const ahora = new Date();
+      const hoy = new Date(ahora); hoy.setHours(0,0,0,0);
       const manana = new Date(hoy); manana.setDate(manana.getDate()+1);
+
+      // Buscamos desde hace 30h para capturar turnos nocturnos que cruzan medianoche
+      const hace30h = new Date(ahora.getTime() - 30 * 60 * 60 * 1000);
+
       const q = query(
         collection(db,"fichajes"),
         where("usuarioId","==",user.uid),
-        where("timestamp",">=",Timestamp.fromDate(hoy)),
+        where("timestamp",">=",Timestamp.fromDate(hace30h)),
         where("timestamp","<",Timestamp.fromDate(manana)),
         orderBy("timestamp","asc")
       );
       const snap = await getDocs(q);
-      setRegistros(snap.docs.map(d => ({ id:d.id, ...d.data() })));
+      const todos = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+
+      // Si el último registro es una entrada del día anterior (turno nocturno abierto),
+      // incluimos todos los registros de ese turno. Si no, solo los de hoy.
+      const ultimoGlobal = todos.length ? todos[todos.length - 1] : null;
+      const ultimoEsEntradaDeAyer = ultimoGlobal?.tipo === "entrada" &&
+        ultimoGlobal?.timestamp?.toDate?.() < hoy;
+
+      if (ultimoEsEntradaDeAyer) {
+        // Turno nocturno abierto: mostrar desde esa entrada hasta ahora
+        const tsEntrada = ultimoGlobal.timestamp.toDate();
+        setRegistros(todos.filter(r => r.timestamp?.toDate?.() >= tsEntrada));
+      } else {
+        // Caso normal: solo registros de hoy
+        setRegistros(todos.filter(r => r.timestamp?.toDate?.() >= hoy));
+      }
     } catch(e) { console.error(e); }
   }, [user]);
 
@@ -119,7 +139,9 @@ export default function Fichar() {
         empresaId:perfil.empresaId, empresaNombre:empresa?.nombre||"",
         tipo, timestamp:Timestamp.fromDate(ahora),
         fecha:format(ahora,"dd/MM/yyyy"), hora:format(ahora,"HH:mm:ss"),
-        horasDia, ip:"web"
+        horasDia, ip:"web",
+        // Guardamos también la fecha de la entrada del turno por si cruza medianoche
+        fechaEntrada: registrosHoy.find(r=>r.tipo==="entrada")?.fecha || format(ahora,"dd/MM/yyyy"),
       });
       if (tipo==="salida"&&horasDia) {
         showToast(`${t("fichar_total_hoy")} ${horasDia}`,"success");
