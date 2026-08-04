@@ -9,19 +9,29 @@ import { format } from "date-fns";
 export default function Dashboard() {
   const { perfil } = useAuth();
   const { t } = useLang();
+  const esRRHH = perfil?.rol === "rrhh";
+  const miEmpresaId = perfil?.empresaId;
   const [stats, setStats]     = useState({ empresas:0, empleados:0, fichajesHoy:0 });
   const [ultimos, setUltimos] = useState([]);
 
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => { cargar(); }, [perfil]);
 
   const cargar = async () => {
+    if (!perfil) return;
     const hoy = new Date(); hoy.setHours(0,0,0,0);
+    const empQuery = esRRHH
+      ? query(collection(db,"usuarios"), where("rol","==","empleado"), where("empresaId","==",miEmpresaId))
+      : query(collection(db,"usuarios"), where("rol","==","empleado"));
+    const fichQuery = esRRHH
+      ? query(collection(db,"fichajes"), where("empresaId","==",miEmpresaId), where("timestamp",">=",Timestamp.fromDate(hoy)))
+      : query(collection(db,"fichajes"), where("timestamp",">=",Timestamp.fromDate(hoy)));
     const [empSnap, usrSnap, fichSnap] = await Promise.all([
       getDocs(collection(db,"empresas")),
-      getDocs(query(collection(db,"usuarios"), where("rol","==","empleado"))),
-      getDocs(query(collection(db,"fichajes"), where("timestamp",">=",Timestamp.fromDate(hoy)))),
+      getDocs(empQuery),
+      getDocs(fichQuery),
     ]);
-    setStats({ empresas:empSnap.size, empleados:usrSnap.size, fichajesHoy:fichSnap.size });
+    const numEmpresas = esRRHH ? 1 : empSnap.size;
+    setStats({ empresas:numEmpresas, empleados:usrSnap.size, fichajesHoy:fichSnap.size });
     const todos = fichSnap.docs
       .map(d => ({ id:d.id, ...d.data() }))
       .sort((a,b) => b.timestamp?.seconds - a.timestamp?.seconds)
