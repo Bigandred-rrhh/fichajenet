@@ -1,6 +1,6 @@
 // src/pages/Empleados.jsx
 import React, { useEffect, useState } from "react";
-import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc } from "firebase/firestore";
+import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, query, where } from "firebase/firestore";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { initializeApp, getApps } from "firebase/app";
 import { getAuth } from "firebase/auth";
@@ -36,9 +36,6 @@ export default function Empleados() {
 
   const cargar = async () => {
     if (!perfil) return;
-    const usrQuery = esRRHH
-      ? query(collection(db,"usuarios"), where("empresaId","==",miEmpresaId))
-      : getDocs(collection(db,"usuarios")).then(s=>s); // se sobreescribe abajo
     const [empSnap, usrSnap] = await Promise.all([
       getDocs(collection(db,"empresas")),
       esRRHH
@@ -60,7 +57,7 @@ export default function Empleados() {
       showToast("Nombre, email y empresa son obligatorios","error"); return;
     }
     if (!editId && !form.password) {
-      showToast("La contraseña es obligatoria para nuevos empleados","error"); return;
+      showToast("La contrasena es obligatoria para nuevos empleados","error"); return;
     }
     setGuardando(true);
     try {
@@ -83,15 +80,15 @@ export default function Empleados() {
       }
       setModal(false); cargar();
     } catch(err) {
-      if (err.code==="auth/email-already-in-use") showToast("Ese email ya está registrado","error");
-      else if (err.code==="auth/weak-password") showToast("La contraseña debe tener al menos 6 caracteres","error");
+      if (err.code==="auth/email-already-in-use") showToast("Ese email ya esta registrado","error");
+      else if (err.code==="auth/weak-password") showToast("La contrasena debe tener al menos 6 caracteres","error");
       else showToast("Error: "+err.message,"error");
     }
     setGuardando(false);
   };
 
   const eliminar = async (id) => {
-    if (!window.confirm("¿Eliminar este empleado?")) return;
+    if (!window.confirm("Eliminar este empleado?")) return;
     await deleteDoc(doc(db,"usuarios",id));
     showToast("Empleado eliminado","success"); cargar();
   };
@@ -105,11 +102,13 @@ export default function Empleados() {
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
         <h1 style={{ fontSize:22, fontWeight:700 }}>{t("emp_titulo")}</h1>
         <div style={{ display:"flex", gap:10 }}>
-          <select className="form-input form-select" style={{ width:"auto" }}
-            value={filtro} onChange={e=>setFiltro(e.target.value)}>
-            <option value="">{t("emp_todas_empresas")}</option>
-            {empresas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-          </select>
+          {!esRRHH && (
+            <select className="form-input form-select" style={{ width:"auto" }}
+              value={filtro} onChange={e=>setFiltro(e.target.value)}>
+              <option value="">{t("emp_todas_empresas")}</option>
+              {empresas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+            </select>
+          )}
           <button className="btn btn-primary" onClick={()=>abrir(null)}>{t("emp_nuevo")}</button>
         </div>
       </div>
@@ -152,7 +151,7 @@ export default function Empleados() {
             <div className="modal-title">{editId ? t("emp_modal_editar") : t("emp_modal_nuevo")}</div>
             <div className="form-group">
               <label className="form-label">{t("emp_nombre_label")}</label>
-              <input className="form-input" placeholder="María López García"
+              <input className="form-input" placeholder="Maria Lopez Garcia"
                 value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} />
             </div>
             {!editId && <>
@@ -163,23 +162,28 @@ export default function Empleados() {
               </div>
               <div className="form-group">
                 <label className="form-label">{t("emp_pwd_label")}</label>
-                <input className="form-input" type="text" placeholder="Mínimo 6 caracteres"
+                <input className="form-input" type="text" placeholder="Minimo 6 caracteres"
                   value={form.password} onChange={e=>setForm({...form,password:e.target.value})} />
                 <small style={{ color:"#9CA3AF", fontSize:12 }}>{t("emp_pwd_hint")}</small>
               </div>
             </>}
             <div className="form-group">
               <label className="form-label">{t("emp_empresa_label")}</label>
-              <select className="form-input form-select"
-                value={form.empresaId} onChange={e=>setForm({...form,empresaId:e.target.value})}>
-                <option value="">{t("emp_empresa_sel")}</option>
-                {empresas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-              </select>
+              {esRRHH ? (
+                <input className="form-input" value={empresas.find(e=>e.id===miEmpresaId)?.nombre||""} disabled
+                  style={{background:"#F9F9F9",color:"#9CA3AF"}}/>
+              ) : (
+                <select className="form-input form-select"
+                  value={form.empresaId} onChange={e=>setForm({...form,empresaId:e.target.value})}>
+                  <option value="">{t("emp_empresa_sel")}</option>
+                  {empresas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                </select>
+              )}
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
               <div className="form-group">
                 <label className="form-label">{t("emp_cat_label")}</label>
-                <input className="form-input" placeholder="Comercial, Técnico..."
+                <input className="form-input" placeholder="Comercial, Tecnico..."
                   value={form.categoria} onChange={e=>setForm({...form,categoria:e.target.value})} />
               </div>
               <div className="form-group">
@@ -197,7 +201,7 @@ export default function Empleados() {
                 value={form.rol} onChange={e=>setForm({...form,rol:e.target.value})}>
                 <option value="empleado">{t("emp_rol_empleado")}</option>
                 <option value="rrhh">{t("emp_rol_rrhh")}</option>
-                <option value="admin">{t("emp_rol_admin")}</option>
+                {!esRRHH && <option value="admin">{t("emp_rol_admin")}</option>}
               </select>
             </div>
             <div className="modal-actions">
