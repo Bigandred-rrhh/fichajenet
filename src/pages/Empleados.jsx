@@ -20,8 +20,10 @@ const VACIO = { nombre:"", email:"", password:"", empresaId:"", categoria:"", jo
 
 export default function Empleados() {
   const { showToast, ToastUI } = useToast();
-  const { user: adminUser } = useAuth();
+  const { user: adminUser, perfil } = useAuth();
   const { t } = useLang();
+  const esRRHH = perfil?.rol === "rrhh";
+  const miEmpresaId = perfil?.empresaId;
   const [empleados, setEmpleados] = useState([]);
   const [empresas,  setEmpresas]  = useState([]);
   const [modal,     setModal]     = useState(false);
@@ -30,12 +32,18 @@ export default function Empleados() {
   const [guardando, setGuardando] = useState(false);
   const [filtro,    setFiltro]    = useState("");
 
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => { cargar(); }, [perfil]);
 
   const cargar = async () => {
+    if (!perfil) return;
+    const usrQuery = esRRHH
+      ? query(collection(db,"usuarios"), where("empresaId","==",miEmpresaId))
+      : getDocs(collection(db,"usuarios")).then(s=>s); // se sobreescribe abajo
     const [empSnap, usrSnap] = await Promise.all([
       getDocs(collection(db,"empresas")),
-      getDocs(collection(db,"usuarios")),
+      esRRHH
+        ? getDocs(query(collection(db,"usuarios"), where("empresaId","==",miEmpresaId)))
+        : getDocs(collection(db,"usuarios")),
     ]);
     setEmpresas(empSnap.docs.map(d => ({ id:d.id, ...d.data() })));
     setEmpleados(usrSnap.docs.map(d => ({ id:d.id, ...d.data() })));
@@ -43,7 +51,7 @@ export default function Empleados() {
 
   const abrir = (emp) => {
     if (emp) { setForm({...emp, password:""}); setEditId(emp.id); }
-    else     { setForm(VACIO); setEditId(null); }
+    else     { setForm({...VACIO, ...(esRRHH ? {empresaId: miEmpresaId} : {})}); setEditId(null); }
     setModal(true);
   };
 
