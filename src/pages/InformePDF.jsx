@@ -331,27 +331,40 @@ function InformeEmpleado({ datos, mesTexto, pageBreak = false }) {
   );
 }
 
+import { useAuth } from "../lib/AuthContext";
+
 // ─── Componente principal ──────────────────────────────────────────────────────
 export default function InformePDF() {
+  const { perfil } = useAuth();
+  const esRRHH = perfil?.rol === "rrhh";
+  const miEmpresaId = perfil?.empresaId;
+
   const [empresas,      setEmpresas]      = useState([]);
   const [empleados,     setEmpleados]     = useState([]);
   const [empresa,       setEmpresa]       = useState("");
-  const [empleado,      setEmpleado]      = useState("");   // "" = todos
+  const [empleado,      setEmpleado]      = useState("");
   const [mes,           setMes]           = useState(format(new Date(), "yyyy-MM"));
-  const [datos,         setDatos]         = useState(null);   // un objeto   → individual
-  const [datosMulti,    setDatosMulti]    = useState(null);   // array       → todos
+  const [datos,         setDatos]         = useState(null);
+  const [datosMulti,    setDatosMulti]    = useState(null);
   const [cargando,      setCargando]      = useState(false);
   const [progreso,      setProgreso]      = useState({ actual: 0, total: 0 });
 
-  useEffect(() => { cargarBase(); }, []);
+  useEffect(() => { cargarBase(); }, [perfil]);
 
   const cargarBase = async () => {
+    if (!perfil) return;
     const [eSnap, uSnap] = await Promise.all([
       getDocs(collection(db, "empresas")),
-      getDocs(collection(db, "usuarios")),
+      esRRHH
+        ? getDocs(query(collection(db, "usuarios"), where("empresaId", "==", miEmpresaId)))
+        : getDocs(collection(db, "usuarios")),
     ]);
-    setEmpresas(eSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+    const todasEmpresas = eSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // RRHH solo ve su empresa
+    setEmpresas(esRRHH ? todasEmpresas.filter(e => e.id === miEmpresaId) : todasEmpresas);
     setEmpleados(uSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.rol === "empleado" || u.rol === "rrhh"));
+    // Preseleccionar empresa si es RRHH
+    if (esRRHH) setEmpresa(miEmpresaId);
   };
 
   // Empleados visibles en el desplegable según empresa seleccionada
@@ -445,7 +458,8 @@ export default function InformePDF() {
         <div className="card" style={{ marginBottom: 20 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
 
-            {/* Empresa */}
+            {/* Empresa — oculta para RRHH (ya preseleccionada) */}
+            {!esRRHH && (
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label className="form-label">Empresa</label>
               <select
@@ -457,6 +471,7 @@ export default function InformePDF() {
                 {empresas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
               </select>
             </div>
+            )}
 
             {/* Empleado — incluye opción "Todos los empleados" cuando hay empresa seleccionada */}
             <div className="form-group" style={{ marginBottom: 0 }}>
