@@ -96,6 +96,8 @@ export default function Vacaciones() {
   const { showToast, ToastUI } = useToast();
   const { t } = useLang();
   const esAdmin = perfil?.rol==="admin" || perfil?.rol==="rrhh";
+  const esRRHH  = perfil?.rol==="rrhh";
+  const miEmpresaId = perfil?.empresaId;
 
   const ESTADOS = {
     pendiente: { label:t("vac_estado_pendiente"), clase:"badge-amber" },
@@ -118,10 +120,14 @@ export default function Vacaciones() {
     if (!perfil) return;
     try {
       const q = esAdmin
-        ? query(collection(db,"vacaciones"), orderBy("creadaEn","desc"))
+        ? esRRHH
+          ? query(collection(db,"vacaciones"), where("empresaId","==",miEmpresaId), orderBy("creadaEn","desc"))
+          : query(collection(db,"vacaciones"), orderBy("creadaEn","desc"))
         : query(collection(db,"vacaciones"), where("empleadoId","==",user.uid));
       const queries = [getDocs(q), getDocs(collection(db,"empresas"))];
-      if (esAdmin) queries.push(getDocs(collection(db,"usuarios")));
+      if (esAdmin) queries.push(esRRHH
+        ? getDocs(query(collection(db,"usuarios"), where("empresaId","==",miEmpresaId)))
+        : getDocs(collection(db,"usuarios")));
       const results = await Promise.all(queries);
       const [vSnap, eSnap] = results;
       const uSnap = esAdmin ? results[2] : null;
