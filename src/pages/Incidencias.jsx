@@ -19,6 +19,8 @@ export default function Incidencias() {
   const { showToast, ToastUI } = useToast();
   const { t } = useLang();
   const esAdmin = perfil?.rol==="admin" || perfil?.rol==="rrhh";
+  const esRRHH  = perfil?.rol==="rrhh";
+  const miEmpresaId = perfil?.empresaId;
 
   const [incidencias,  setIncidencias]  = useState([]);
   const [empleados,    setEmpleados]    = useState([]);
@@ -41,10 +43,14 @@ export default function Incidencias() {
     if (!perfil) return;
     try {
       const q = esAdmin
-        ? query(collection(db,"incidencias"), orderBy("creadaEn","desc"))
+        ? esRRHH
+          ? query(collection(db,"incidencias"), where("empresaId","==",miEmpresaId), orderBy("creadaEn","desc"))
+          : query(collection(db,"incidencias"), orderBy("creadaEn","desc"))
         : query(collection(db,"incidencias"), where("empleadoId","==",user.uid));
       const queries = [getDocs(q), getDocs(collection(db,"empresas"))];
-      if (esAdmin) queries.push(getDocs(collection(db,"usuarios")));
+      if (esAdmin) queries.push(esRRHH
+        ? getDocs(query(collection(db,"usuarios"), where("empresaId","==",miEmpresaId)))
+        : getDocs(collection(db,"usuarios")));
       const results = await Promise.all(queries);
       const [incSnap, empSnap] = results;
       const uSnap = esAdmin ? results[2] : null;
