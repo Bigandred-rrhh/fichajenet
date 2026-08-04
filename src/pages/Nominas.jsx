@@ -14,7 +14,8 @@ export default function Nominas() {
   const { user, perfil } = useAuth();
   const { showToast, ToastUI } = useToast();
   const { t } = useLang();
-  const esAdmin = perfil?.rol==="admin" || perfil?.rol==="rrhh";
+  const esAdmin = perfil?.rol==="admin"; // Solo admin gestiona nóminas
+  const esVistaAdmin = perfil?.rol==="admin"; // RRHH y empleado ven solo las suyas
 
   const [nominas,       setNominas]       = useState([]);
   const [empleados,     setEmpleados]     = useState([]);
@@ -30,6 +31,7 @@ export default function Nominas() {
   const cargar = async () => {
     if (!perfil) return;
     try {
+      // Solo admin ve todas las nóminas; RRHH y empleado ven solo las suyas
       const q = esAdmin
         ? query(collection(db,"nominas"), orderBy("creadaEn","desc"))
         : query(collection(db,"nominas"), where("empleadoId","==",user.uid));
