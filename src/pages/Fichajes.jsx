@@ -31,8 +31,13 @@ function minsATexto(mins) {
   return `${Math.floor(mins/60)}h ${String(mins%60).padStart(2,"0")}m`;
 }
 
+import { useAuth } from "../lib/AuthContext";
+
 export default function Fichajes() {
   const { t } = useLang();
+  const { perfil } = useAuth();
+  const esRRHH = perfil?.rol === "rrhh";
+  const miEmpresaId = perfil?.empresaId;
   const [fichajes,     setFichajes]     = useState([]);
   const [incidencias,  setIncidencias]  = useState([]);
   const [vacaciones,   setVacaciones]   = useState([]);
@@ -42,8 +47,8 @@ export default function Fichajes() {
   const [mes,         setMes]         = useState(format(new Date(),"yyyy-MM"));
   const [cargando,    setCargando]    = useState(false);
 
-  useEffect(() => { cargarEmpresas(); }, []);
-  useEffect(() => { cargarDatos(); }, [filtroEmp, mes]);
+  useEffect(() => { cargarEmpresas(); }, [perfil]);
+  useEffect(() => { cargarDatos(); }, [filtroEmp, mes, perfil]);
 
   const cargarEmpresas = async () => {
     const snap = await getDocs(collection(db,"empresas"));
@@ -51,12 +56,15 @@ export default function Fichajes() {
   };
 
   const cargarDatos = async () => {
+    if (!perfil) return;
     setCargando(true);
     const [y,m] = mes.split("-").map(Number);
     const desde = startOfMonth(new Date(y,m-1));
     const hasta = endOfMonth(new Date(y,m-1));
-    const baseQuery = filtroEmp
-      ? [where("empresaId","==",filtroEmp), where("timestamp",">=",Timestamp.fromDate(desde)), where("timestamp","<=",Timestamp.fromDate(hasta)), orderBy("timestamp","desc")]
+    // RRHH siempre filtra por su empresa; admin puede filtrar o ver todo
+    const empresaFiltro = esRRHH ? miEmpresaId : filtroEmp;
+    const baseQuery = empresaFiltro
+      ? [where("empresaId","==",empresaFiltro), where("timestamp",">=",Timestamp.fromDate(desde)), where("timestamp","<=",Timestamp.fromDate(hasta)), orderBy("timestamp","desc")]
       : [where("timestamp",">=",Timestamp.fromDate(desde)), where("timestamp","<=",Timestamp.fromDate(hasta)), orderBy("timestamp","desc")];
     const [fSnap, iSnap, vSnap, eSnap] = await Promise.all([
       getDocs(query(collection(db,"fichajes"), ...baseQuery)),
@@ -174,6 +182,7 @@ export default function Fichajes() {
             <input className="form-input" type="month" value={mes}
               onChange={e=>setMes(e.target.value)} style={{ width:170 }} />
           </div>
+          {!esRRHH && (
           <div>
             <label className="form-label" style={{ marginBottom:4 }}>{t("fichajes_empresa")}</label>
             <select className="form-input form-select" style={{ width:220 }}
@@ -182,6 +191,7 @@ export default function Fichajes() {
               {empresas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
             </select>
           </div>
+          )}
           <div style={{ marginTop:18 }}>
             <span className="badge badge-blue">{resumen.length} {t("fichajes_dias")}</span>
           </div>
