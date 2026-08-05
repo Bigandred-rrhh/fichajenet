@@ -45,6 +45,8 @@ function Layout({ children, rol }) {
   const location = useLocation();
   const navigate  = useNavigate();
   const esAdmin    = rol === "admin" || rol === "rrhh";
+  const esSuperAdmin = rol === "admin";
+  const esRRHH     = rol === "rrhh";
   const esEmpleado = rol === "empleado";
 
   // Página de inicio según rol
@@ -70,9 +72,11 @@ function Layout({ children, rol }) {
             <NavLink to="/dashboard"  className={({isActive})=>"nav-link"+(isActive?" active":"")}>
               <span className="nav-icon">📊</span> {t("nav_inicio")}
             </NavLink>
-            <NavLink to="/empresas"   className={({isActive})=>"nav-link"+(isActive?" active":"")}>
-              <span className="nav-icon">🏢</span> {t("nav_empresas")}
-            </NavLink>
+            {esSuperAdmin && (
+              <NavLink to="/empresas" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
+                <span className="nav-icon">🏢</span> {t("nav_empresas")}
+              </NavLink>
+            )}
             <NavLink to="/empleados"  className={({isActive})=>"nav-link"+(isActive?" active":"")}>
               <span className="nav-icon">👥</span> {t("nav_empleados")}
             </NavLink>
@@ -198,11 +202,12 @@ function Layout({ children, rol }) {
   );
 }
 
-function RutaProtegida({ children, soloAdmin }) {
+function RutaProtegida({ children, soloAdmin, soloSuperAdmin }) {
   const { user, perfil, cargando } = useAuth();
   const { t } = useLang();
   if (cargando) return <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh" }}>{t("cargando")}</div>;
   if (!user) return <Navigate to="/login" replace />;
+  if (soloSuperAdmin && perfil?.rol !== "admin") return <Navigate to="/dashboard" replace />;
   if (soloAdmin && perfil?.rol === "empleado") return <Navigate to="/fichar" replace />;
   return <Layout rol={perfil?.rol}>{children}</Layout>;
 }
@@ -218,7 +223,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={!user ? <Login /> : <Navigate to={perfil?.rol==="empleado"?"/fichar":"/dashboard"} />} />
       <Route path="/dashboard"        element={<RutaProtegida soloAdmin><Dashboard /></RutaProtegida>} />
-      <Route path="/empresas"         element={<RutaProtegida soloAdmin><Empresas /></RutaProtegida>} />
+      <Route path="/empresas"         element={<RutaProtegida soloSuperAdmin><Empresas /></RutaProtegida>} />
       <Route path="/empleados"        element={<RutaProtegida soloAdmin><Empleados /></RutaProtegida>} />
       <Route path="/fichajes"         element={<RutaProtegida soloAdmin><Fichajes /></RutaProtegida>} />
       <Route path="/incidencias"      element={<RutaProtegida><Incidencias /></RutaProtegida>} />
