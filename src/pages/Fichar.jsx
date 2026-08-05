@@ -1,5 +1,5 @@
 // src/pages/Fichar.jsx
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { collection, addDoc, query, where, getDocs, orderBy, Timestamp, doc, getDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuth } from "../lib/AuthContext";
@@ -40,6 +40,9 @@ export default function Fichar() {
   const [tiempoVivo, setTiempoVivo]   = useState(null);
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [cooldown, setCooldown]       = useState(0);
+  // Ref para bloquear doble pulsacion a nivel de JS aunque el estado no haya actualizado aun
+  const registrando = useRef(false);
 
   useEffect(() => {
     const t = setInterval(() => setHora(new Date()), 1000);
@@ -74,8 +77,6 @@ export default function Fichar() {
       const ahora = new Date();
       const hoy = new Date(ahora); hoy.setHours(0,0,0,0);
       const manana = new Date(hoy); manana.setDate(manana.getDate()+1);
-
-      // Buscamos desde hace 30h para capturar turnos nocturnos que cruzan medianoche
       const hace30h = new Date(ahora.getTime() - 30 * 60 * 60 * 1000);
 
       const q = query(
@@ -88,18 +89,14 @@ export default function Fichar() {
       const snap = await getDocs(q);
       const todos = snap.docs.map(d => ({ id:d.id, ...d.data() }));
 
-      // Si el último registro es una entrada del día anterior (turno nocturno abierto),
-      // incluimos todos los registros de ese turno. Si no, solo los de hoy.
       const ultimoGlobal = todos.length ? todos[todos.length - 1] : null;
       const ultimoEsEntradaDeAyer = ultimoGlobal?.tipo === "entrada" &&
         ultimoGlobal?.timestamp?.toDate?.() < hoy;
 
       if (ultimoEsEntradaDeAyer) {
-        // Turno nocturno abierto: mostrar desde esa entrada hasta ahora
         const tsEntrada = ultimoGlobal.timestamp.toDate();
         setRegistros(todos.filter(r => r.timestamp?.toDate?.() >= tsEntrada));
       } else {
-        // Caso normal: solo registros de hoy
         setRegistros(todos.filter(r => r.timestamp?.toDate?.() >= hoy));
       }
     } catch(e) { console.error(e); }
@@ -114,16 +111,46 @@ export default function Fichar() {
   }, [perfil, user, iniciado, cargarEmpresa, cargarRegistrosHoy]);
 
   const registrar = async (tipo) => {
-    if (cargando) return;
+    // Doble proteccion: ref (inmediato) + estado (para UI)
+    if (registrando.current || cargando) return;
+    registrando.current = true;
     setCargando(true);
     try {
+      // Recargar registros frescos antes de guardar para evitar duplicados
+      await cargarRegistrosHoy();
+
+      // Verificar estado actual desde Firestore directamente
       const ahora = new Date();
+      const hoy = new Date(ahora); hoy.setHours(0,0,0,0);
+      const hace30h = new Date(ahora.getTime() - 30 * 60 * 60 * 1000);
+      const qCheck = query(
+        collection(db,"fichajes"),
+        where("usuarioId","==",user.uid),
+        where("timestamp",">=",Timestamp.fromDate(hace30h)),
+        where("timestamp","<",Timestamp.fromDate(new Date(hoy.getTime() + 24*60*60*1000))),
+        orderBy("timestamp","asc")
+      );
+      const snapCheck = await getDocs(qCheck);
+      const todosCheck = snapCheck.docs.map(d => ({ id:d.id, ...d.data() }));
+      const ultimoCheck = todosCheck.length ? todosCheck[todosCheck.length-1] : null;
+      const ultimoTipoCheck = ultimoCheck?.tipo || null;
+
+      // Bloquear entrada doble o salida doble
+      if (tipo === "entrada" && ultimoTipoCheck === "entrada") {
+        showToast("Ya tienes una entrada registrada sin salida", "error");
+        return;
+      }
+      if (tipo === "salida" && ultimoTipoCheck !== "entrada") {
+        showToast("No hay ninguna entrada abierta para registrar salida", "error");
+        return;
+      }
+
       let horasDia = null;
-      if (tipo === "salida" && registrosHoy.length > 0) {
-        const ultima = registrosHoy[registrosHoy.length-1].timestamp?.toDate?.();
+      if (tipo === "salida" && ultimoCheck) {
+        const ultima = ultimoCheck.timestamp?.toDate?.();
         if (ultima) {
           let totalMins = 0;
-          const lista = [...registrosHoy];
+          const lista = [...todosCheck];
           for (let i = 0; i < lista.length-1; i++) {
             if (lista[i].tipo==="entrada" && lista[i+1].tipo==="salida") {
               const e=lista[i].timestamp?.toDate?.(); const s=lista[i+1].timestamp?.toDate?.();
@@ -134,26 +161,37 @@ export default function Fichar() {
           horasDia = `${Math.floor(totalMins/60)}h ${String(totalMins%60).padStart(2,"0")}m`;
         }
       }
+
       await addDoc(collection(db,"fichajes"), {
         usuarioId:user.uid, nombre:perfil.nombre,
         empresaId:perfil.empresaId, empresaNombre:empresa?.nombre||"",
         tipo, timestamp:Timestamp.fromDate(ahora),
         fecha:format(ahora,"dd/MM/yyyy"), hora:format(ahora,"HH:mm:ss"),
         horasDia, ip:"web",
-        // Guardamos también la fecha de la entrada del turno por si cruza medianoche
-        fechaEntrada: registrosHoy.find(r=>r.tipo==="entrada")?.fecha || format(ahora,"dd/MM/yyyy"),
+        fechaEntrada: todosCheck.find(r=>r.tipo==="entrada")?.fecha || format(ahora,"dd/MM/yyyy"),
       });
+
       if (tipo==="salida"&&horasDia) {
         showToast(`${t("fichar_total_hoy")} ${horasDia}`,"success");
       } else {
         showToast(`${t("fichar_toast_entrada")} ${format(ahora,"HH:mm")}`,"success");
       }
       await cargarRegistrosHoy();
+      // Cooldown de 3 segundos para evitar doble fichaje accidental
+      setCooldown(3);
+      const intervalo = setInterval(() => {
+        setCooldown(prev => {
+          if (prev <= 1) { clearInterval(intervalo); return 0; }
+          return prev - 1;
+        });
+      }, 1000);
     } catch(err) {
       console.error(err);
       showToast(t("fichar_error"),"error");
+    } finally {
+      registrando.current = false;
+      setCargando(false);
     }
-    setCargando(false);
   };
 
   const handleLogout = async () => {
@@ -179,12 +217,11 @@ export default function Fichar() {
       {ToastUI}
       <div className="card" style={{ textAlign:"center", padding:"28px 24px", position:"relative" }}>
 
-        {/* Barra superior móvil */}
+        {/* Barra superior movil */}
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
           <span className="mobile-show"><Notificaciones /></span>
 
           <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-            {/* Botón idioma en móvil */}
             <button
               onClick={toggleLang}
               className="mobile-show"
@@ -198,7 +235,6 @@ export default function Fichar() {
               {lang==="es"?"EN":"ES"}
             </button>
 
-            {/* Menú Mi cuenta */}
             <div style={{ position:"relative" }}>
               <button onClick={()=>setMenuAbierto(!menuAbierto)} className="mobile-show" style={{
                 display:"flex", alignItems:"center", gap:6,
@@ -279,14 +315,14 @@ export default function Fichar() {
 
         {ultimoTipo !== "entrada" && (
           <button className="btn btn-green btn-lg" style={{ marginBottom:12 }}
-            onClick={()=>registrar("entrada")} disabled={cargando}>
-            {cargando ? t("fichar_registrando") : t("fichar_btn_entrada")}
+            onClick={()=>registrar("entrada")} disabled={cargando || cooldown > 0}>
+            {cargando ? t("fichar_registrando") : cooldown > 0 ? `Espera ${cooldown}s...` : t("fichar_btn_entrada")}
           </button>
         )}
         {ultimoTipo === "entrada" && (
           <button className="btn btn-red btn-lg" style={{ marginBottom:12 }}
-            onClick={()=>registrar("salida")} disabled={cargando}>
-            {cargando ? t("fichar_registrando") : t("fichar_btn_salida")}
+            onClick={()=>registrar("salida")} disabled={cargando || cooldown > 0}>
+            {cargando ? t("fichar_registrando") : cooldown > 0 ? `Espera ${cooldown}s...` : t("fichar_btn_salida")}
           </button>
         )}
 
