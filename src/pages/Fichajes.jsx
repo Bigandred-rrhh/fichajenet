@@ -103,47 +103,110 @@ export default function Fichajes() {
   };
 
   const calcularResumen = () => {
-    const mapa = {};
+    // Ordenar todos los fichajes por timestamp ascendente
     const ascendente = [...fichajes].sort((a,b) => (a.timestamp?.seconds||0)-(b.timestamp?.seconds||0));
+
+    // Agrupar por usuarioId primero
+    const porUsuario = {};
     ascendente.forEach(f => {
-      const clave = `${f.usuarioId}_${f.fecha}`;
-      if (!mapa[clave]) mapa[clave] = { usuarioId:f.usuarioId, nombre:f.nombre, empresa:f.empresaNombre, fecha:f.fecha, registros:[] };
-      mapa[clave].registros.push(f);
+      if (!porUsuario[f.usuarioId]) porUsuario[f.usuarioId] = [];
+      porUsuario[f.usuarioId].push(f);
     });
-    return Object.values(mapa).map(dia => {
-      const fechaNorm = normFecha(dia.fecha);
-      const incsAprobadas = incidencias.filter(i => i.empleadoId===dia.usuarioId && normFecha(i.fecha)===fechaNorm && i.estado==="aprobada" && i.horaCorrecta);
-      let eventos = dia.registros.map(r => ({ tipo:r.tipo, mins:horaAMins(r.hora), fuente:"fichaje" })).filter(e=>e.mins!==null);
-      incsAprobadas.forEach(inc => {
-        const minCorr = horaAMins(inc.horaCorrecta);
-        if (minCorr===null) return;
-        if (inc.tipo==="Olvido de fichaje de entrada") {
-          const idx=eventos.findIndex(e=>e.tipo==="entrada");
-          if (idx>=0) { if (minCorr<eventos[idx].mins) eventos[idx]={tipo:"entrada",mins:minCorr,fuente:"incidencia"}; }
-          else eventos.push({tipo:"entrada",mins:minCorr,fuente:"incidencia"});
-        } else if (inc.tipo==="Olvido de fichaje de salida") {
-          const idx=eventos.findIndex(e=>e.tipo==="salida");
-          if (idx>=0) { if (minCorr>eventos[idx].mins) eventos[idx]={tipo:"salida",mins:minCorr,fuente:"incidencia"}; }
-          else eventos.push({tipo:"salida",mins:minCorr,fuente:"incidencia"});
-        } else if (inc.tipo==="Error en la hora fichada") {
-          const entradas=eventos.filter(e=>e.tipo==="entrada"); const salidas=eventos.filter(e=>e.tipo==="salida");
-          if (entradas.length>salidas.length) { const idx=eventos.findIndex(e=>e.tipo==="salida"); if (idx>=0) eventos[idx].mins=minCorr; else eventos.push({tipo:"salida",mins:minCorr,fuente:"incidencia"}); }
-          else { const idx=eventos.findIndex(e=>e.tipo==="entrada"); if (idx>=0) eventos[idx].mins=minCorr; else eventos.push({tipo:"entrada",mins:minCorr,fuente:"incidencia"}); }
+
+    const filas = [];
+
+    Object.entries(porUsuario).forEach(([usuarioId, regs]) => {
+      // Emparejar entradas con salidas respetando turnos nocturnos
+      const turnos = [];
+      let entradaActual = null;
+
+      regs.forEach(r => {
+        if (r.tipo === "entrada") {
+          // Si había una entrada sin cerrar, la guardamos como turno abierto
+          if (entradaActual) {
+            turnos.push({ entrada: entradaActual, salida: null });
+          }
+          entradaActual = r;
+        } else if (r.tipo === "salida") {
+          if (entradaActual) {
+            turnos.push({ entrada: entradaActual, salida: r });
+            entradaActual = null;
+          } else {
+            // Salida sin entrada — mostrar igualmente
+            turnos.push({ entrada: null, salida: r });
+          }
         }
       });
-      const totalMins = calcularTotalMins(eventos);
-      const entradaHora = dia.registros.find(r=>r.tipo==="entrada")?.hora || "—";
-      const salidaHora  = [...dia.registros].reverse().find(r=>r.tipo==="salida")?.hora || "—";
-      const todasIncs = incidencias.filter(i => i.empleadoId===dia.usuarioId && normFecha(i.fecha)===fechaNorm);
-      const ausencia = ausenciaDeDia(dia.usuarioId, toISO(dia.fecha));
-      return {
-        usuarioId:dia.usuarioId, nombre:dia.nombre, empresa:dia.empresa, fecha:dia.fecha,
-        entrada:entradaHora, salida:salidaHora,
-        total: minsATexto(totalMins) || (salidaHora==="—" ? t("fichajes_en_curso") : "—"),
-        incidencias:todasIncs, conIncAprobada:incsAprobadas.length>0,
-        ausencia,
-      };
-    }).sort((a,b) => toISO(b.fecha).localeCompare(toISO(a.fecha)));
+      // Entrada sin cerrar al final
+      if (entradaActual) turnos.push({ entrada: entradaActual, salida: null });
+
+      turnos.forEach(({ entrada, salida }) => {
+        // La fecha del turno es la de la entrada (o salida si no hay entrada)
+        const fechaRef = entrada || salida;
+        const fecha = fechaRef.fecha || "—";
+        const fechaNorm = normFecha(fecha);
+        const fechaISO = toISO(fecha);
+
+        const entradaHora = entrada?.hora || "—";
+        const salidaHora  = salida?.hora  || "—";
+
+        // Calcular minutos del turno (puede cruzar medianoche)
+        let totalMins = 0;
+        if (entrada && salida) {
+          const tsEntrada = entrada.timestamp?.toDate?.();
+          const tsSalida  = salida.timestamp?.toDate?.();
+          if (tsEntrada && tsSalida) {
+            totalMins = Math.round((tsSalida - tsEntrada) / 60000);
+          }
+        }
+
+        // Aplicar incidencias aprobadas del día de la entrada
+        const incsAprobadas = incidencias.filter(i =>
+          i.empleadoId === usuarioId &&
+          normFecha(i.fecha) === fechaNorm &&
+          i.estado === "aprobada" &&
+          i.horaCorrecta
+        );
+
+        // Si hay incidencia de olvido de salida y no hay salida real, calcular con hora correcta
+        if (!salida) {
+          const incSalida = incsAprobadas.find(i => i.tipo === "Olvido de fichaje de salida");
+          if (incSalida && entrada) {
+            const minsSalida = horaAMins(incSalida.horaCorrecta);
+            const minsEntrada = horaAMins(entradaHora);
+            if (minsSalida !== null && minsEntrada !== null) {
+              // Si la hora correcta es menor que la entrada, es del día siguiente
+              totalMins = minsSalida >= minsEntrada
+                ? minsSalida - minsEntrada
+                : (1440 - minsEntrada) + minsSalida;
+            }
+          }
+        }
+
+        const todasIncs = incidencias.filter(i =>
+          i.empleadoId === usuarioId && normFecha(i.fecha) === fechaNorm
+        );
+        const conIncAprobada = incsAprobadas.length > 0;
+        const ausencia = ausenciaDeDia(usuarioId, fechaISO);
+
+        filas.push({
+          usuarioId,
+          nombre: fechaRef.nombre,
+          empresa: fechaRef.empresaNombre,
+          fecha,
+          entrada: entradaHora,
+          salida: salidaHora,
+          total: minsATexto(totalMins) || (salidaHora === "—" ? t("fichajes_en_curso") : "—"),
+          incidencias: todasIncs,
+          conIncAprobada,
+          ausencia,
+          // Si el turno cruza medianoche, indicarlo
+          turnoNocturno: entrada && salida && entrada.fecha !== salida.fecha,
+        });
+      });
+    });
+
+    return filas.sort((a,b) => toISO(b.fecha).localeCompare(toISO(a.fecha)));
   };
 
   const exportarExcel = () => {
@@ -224,6 +287,7 @@ export default function Fichajes() {
                   <td>
                     {r.fecha}
                     {r.conIncAprobada && <span title="Horas corregidas" style={{ marginLeft:6, fontSize:11, color:"#2E5FA3" }}>✎</span>}
+                    {r.turnoNocturno && <span title="Turno nocturno" style={{ marginLeft:6, fontSize:11, color:"#6B7280" }}>🌙</span>}
                   </td>
                   {r.ausencia ? (
                     // Fila especial de ausencia: ocupa columnas entrada/salida/total con la etiqueta
