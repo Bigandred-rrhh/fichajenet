@@ -28,11 +28,14 @@ function toISO(f) {
 }
 
 async function procesarEmpleado(empId, desde, hasta) {
+  // Ampliar ventana de búsqueda 30h antes para capturar entradas de turno nocturno
+  const desdeAmpliado = new Date(desde.getTime() - 30 * 60 * 60 * 1000);
+
   const [fSnap, iSnap, vSnap, eSnap] = await Promise.all([
     getDocs(query(
       collection(db, "fichajes"),
       where("usuarioId", "==", empId),
-      where("timestamp", ">=", Timestamp.fromDate(desde)),
+      where("timestamp", ">=", Timestamp.fromDate(desdeAmpliado)),
       where("timestamp", "<=", Timestamp.fromDate(hasta)),
       orderBy("timestamp", "asc")
     )),
@@ -45,12 +48,11 @@ async function procesarEmpleado(empId, desde, hasta) {
     getDocs(query(collection(db, "enfermedades"), where("empleadoId", "==", empId))),
   ]);
 
-  const fichajes    = fSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const incs        = iSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const vacaciones  = vSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const fichajes     = fSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const incs         = iSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const vacaciones   = vSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const enfermedades = eSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-  // Devuelve la ausencia que cubre una fecha ISO para este empleado
   const ausenciaDeDia = (fechaISO) => {
     const vac = vacaciones.find(v => fechaISO >= v.fechaInicio && fechaISO <= v.fechaFin);
     if (vac) return { etiqueta: "🏖️ VACACIONES", estado: vac.estado, tipo: "vacaciones" };
@@ -59,47 +61,65 @@ async function procesarEmpleado(empId, desde, hasta) {
     return null;
   };
 
-  const mapa = {};
-  fichajes.forEach(f => {
-    if (!mapa[f.fecha]) mapa[f.fecha] = [];
-    mapa[f.fecha].push(f);
+  // ── Emparejar por turno (soporta turnos nocturnos que cruzan medianoche) ──
+  const turnos = [];
+  let entradaActual = null;
+
+  fichajes.forEach(r => {
+    if (r.tipo === "entrada") {
+      if (entradaActual) turnos.push({ entrada: entradaActual, salida: null });
+      entradaActual = r;
+    } else if (r.tipo === "salida") {
+      if (entradaActual) {
+        turnos.push({ entrada: entradaActual, salida: r });
+        entradaActual = null;
+      } else {
+        turnos.push({ entrada: null, salida: r });
+      }
+    }
   });
+  if (entradaActual) turnos.push({ entrada: entradaActual, salida: null });
 
-  const diasOrdenados = Object.entries(mapa)
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([fecha, regs]) => {
-      const incsDia      = incs.filter(i => normFecha(i.fecha) === normFecha(fecha));
-      const incsAprobadas = incsDia.filter(i => i.estado === "aprobada" && i.horaCorrecta);
-      let eventos = regs.map(r => ({ tipo: r.tipo, mins: horaAMins(r.hora) })).filter(e => e.mins !== null);
+  // Filtrar solo turnos que pertenecen al rango del mes (por fecha de entrada o salida)
+  const diasOrdenados = turnos
+    .filter(({ entrada, salida }) => {
+      const ref = entrada || salida;
+      const ts = ref?.timestamp?.toDate?.();
+      return ts >= desdeAmpliado && ts <= hasta;
+    })
+    .map(({ entrada, salida }) => {
+      const ref = entrada || salida;
+      const fecha = normFecha(ref.fecha || "");
+      const fechaISO = toISO(fecha);
+      const entradaHora = entrada?.hora || "—";
+      const salidaHora  = salida?.hora  || "—";
+      const turnoNocturno = entrada && salida && entrada.fecha !== salida.fecha;
 
-      incsAprobadas.forEach(inc => {
-        const mc = horaAMins(inc.horaCorrecta);
-        if (!mc) return;
-        if (inc.tipo === "Olvido de fichaje de entrada") {
-          const idx = eventos.findIndex(e => e.tipo === "entrada");
-          if (idx >= 0 && mc < eventos[idx].mins) eventos[idx].mins = mc;
-          else if (idx < 0) eventos.push({ tipo: "entrada", mins: mc });
-        } else if (inc.tipo === "Olvido de fichaje de salida") {
-          const idx = eventos.findIndex(e => e.tipo === "salida");
-          if (idx >= 0 && mc > eventos[idx].mins) eventos[idx].mins = mc;
-          else if (idx < 0) eventos.push({ tipo: "salida", mins: mc });
-        }
-      });
-
+      // Calcular minutos usando timestamps reales (correcto para turnos nocturnos)
       let totalMins = 0;
-      const evs = [...eventos].sort((a, b) => a.mins - b.mins);
-      for (let i = 0; i < evs.length - 1; i++) {
-        if (evs[i].tipo === "entrada" && evs[i+1].tipo === "salida") {
-          totalMins += evs[i+1].mins - evs[i].mins;
-          i++;
+      if (entrada && salida) {
+        const tsE = entrada.timestamp?.toDate?.();
+        const tsS = salida.timestamp?.toDate?.();
+        if (tsE && tsS) totalMins = Math.round((tsS - tsE) / 60000);
+      }
+
+      // Aplicar incidencia de olvido de salida si no hay salida real
+      const incsDia = incs.filter(i => normFecha(i.fecha) === fecha);
+      if (!salida) {
+        const incSalida = incsDia.find(i => i.tipo === "Olvido de fichaje de salida" && i.estado === "aprobada" && i.horaCorrecta);
+        if (incSalida && entrada) {
+          const minsS = horaAMins(incSalida.horaCorrecta);
+          const minsE = horaAMins(entradaHora);
+          if (minsS !== null && minsE !== null) {
+            totalMins = minsS >= minsE ? minsS - minsE : (1440 - minsE) + minsS;
+          }
         }
       }
 
-      const entrada = regs.find(r => r.tipo === "entrada")?.hora || "—";
-      const salida  = [...regs].reverse().find(r => r.tipo === "salida")?.hora || "—";
-      const ausencia = ausenciaDeDia(toISO(normFecha(fecha)));
-      return { fecha: normFecha(fecha), entrada, salida, totalMins, incidencias: incsDia, ausencia };
-    });
+      const ausencia = ausenciaDeDia(fechaISO);
+      return { fecha, entrada: entradaHora, salida: salidaHora, totalMins, incidencias: incsDia, ausencia, turnoNocturno };
+    })
+    .sort((a, b) => toISO(a.fecha).localeCompare(toISO(b.fecha)));
 
   const totalMes = diasOrdenados.reduce((a, d) => a + d.totalMins, 0);
   return { diasOrdenados, totalMes, incs, vacaciones, enfermedades };
@@ -179,7 +199,7 @@ function InformeEmpleado({ datos, mesTexto, pageBreak = false }) {
               ? (d.ausencia.tipo === "vacaciones" ? "#F0FDF4" : "#FFF7ED")
               : (i % 2 === 0 ? "#fff" : "#F9FAFB")
             }}>
-              <td style={{ padding: "7px 12px", borderBottom: "1px solid #F3F4F6" }}>{d.fecha}</td>
+              <td style={{ padding: "7px 12px", borderBottom: "1px solid #F3F4F6" }}>{d.fecha}{d.turnoNocturno && <span style={{ marginLeft:6, fontSize:11, color:"#6B7280" }}>🌙</span>}</td>
               {d.ausencia ? (
                 <td colSpan={3} style={{
                   padding: "7px 12px", borderBottom: "1px solid #F3F4F6",
