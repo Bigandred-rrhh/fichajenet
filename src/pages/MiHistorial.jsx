@@ -32,10 +32,12 @@ export default function MiHistorial() {
     const [y,m] = mes.split("-").map(Number);
     const desde = startOfMonth(new Date(y,m-1));
     const hasta = endOfMonth(new Date(y,m-1));
+    // Ampliar 30h hacia atrás para capturar entradas de turno nocturno del día anterior
+    const desdeAmpliado = new Date(desde.getTime() - 30 * 60 * 60 * 1000);
     const [fSnap, iSnap, eSnap, vSnap, enfSnap] = await Promise.all([
       getDocs(query(collection(db,"fichajes"),
         where("usuarioId","==",user.uid),
-        where("timestamp",">=",Timestamp.fromDate(desde)),
+        where("timestamp",">=",Timestamp.fromDate(desdeAmpliado)),
         where("timestamp","<=",Timestamp.fromDate(hasta)),
         orderBy("timestamp","asc"))),
       getDocs(query(collection(db,"incidencias"), where("empleadoId","==",user.uid))),
@@ -70,30 +72,61 @@ export default function MiHistorial() {
   };
 
   const dias = (() => {
-    const mapa = {};
-    fichajes.forEach(f => { if (!mapa[f.fecha]) mapa[f.fecha]=[]; mapa[f.fecha].push(f); });
-    return Object.entries(mapa).sort((a,b)=>b[0].localeCompare(a[0])).map(([fecha,regs]) => {
-      const incsDia = incs.filter(i=>normFecha(i.fecha)===normFecha(fecha));
-      const incsAprobadas = incsDia.filter(i=>i.estado==="aprobada"&&i.horaCorrecta);
-      let eventos = regs.map(r=>({tipo:r.tipo,mins:horaAMins(r.hora)})).filter(e=>e.mins!==null);
-      incsAprobadas.forEach(inc => {
-        const mc=horaAMins(inc.horaCorrecta); if (!mc) return;
-        if (inc.tipo==="Olvido de fichaje de entrada") {
-          const idx=eventos.findIndex(e=>e.tipo==="entrada");
-          if (idx>=0&&mc<eventos[idx].mins) eventos[idx].mins=mc; else if (idx<0) eventos.push({tipo:"entrada",mins:mc});
-        } else if (inc.tipo==="Olvido de fichaje de salida") {
-          const idx=eventos.findIndex(e=>e.tipo==="salida");
-          if (idx>=0&&mc>eventos[idx].mins) eventos[idx].mins=mc; else if (idx<0) eventos.push({tipo:"salida",mins:mc});
-        }
-      });
-      let totalMins=0;
-      const evs=[...eventos].sort((a,b)=>a.mins-b.mins);
-      for (let i=0;i<evs.length-1;i++) { if (evs[i].tipo==="entrada"&&evs[i+1].tipo==="salida") { totalMins+=evs[i+1].mins-evs[i].mins; i++; } }
-      const entrada=regs.find(r=>r.tipo==="entrada")?.hora||"—";
-      const salida=[...regs].reverse().find(r=>r.tipo==="salida")?.hora||"—";
-      const ausencia = ausenciaDeDia(toISO(normFecha(fecha)));
-      return { fecha:normFecha(fecha), entrada, salida, totalMins, incsDia, ausencia };
+    // Emparejar entradas con salidas por turno real (soporta turnos nocturnos)
+    const turnos = [];
+    let entradaActual = null;
+    const ordenados = [...fichajes].sort((a,b) => (a.timestamp?.seconds||0)-(b.timestamp?.seconds||0));
+
+    ordenados.forEach(r => {
+      if (r.tipo === "entrada") {
+        if (entradaActual) turnos.push({ entrada: entradaActual, salida: null });
+        entradaActual = r;
+      } else if (r.tipo === "salida") {
+        if (entradaActual) { turnos.push({ entrada: entradaActual, salida: r }); entradaActual = null; }
+        else turnos.push({ entrada: null, salida: r });
+      }
     });
+    if (entradaActual) turnos.push({ entrada: entradaActual, salida: null });
+
+    return turnos
+      .filter(({ entrada, salida }) => {
+        // Solo mostrar turnos cuya entrada (o salida) pertenece al mes seleccionado
+        const ref = entrada || salida;
+        const fechaRef = normFecha(ref?.fecha || "");
+        return fechaRef.slice(3) === mes.slice(5) + "/" + mes.slice(0,4);
+      })
+      .map(({ entrada, salida }) => {
+        const ref = entrada || salida;
+        const fecha = normFecha(ref.fecha || "");
+        const incsDia = incs.filter(i => normFecha(i.fecha) === fecha);
+        const entradaHora = entrada?.hora || "—";
+        const salidaHora  = salida?.hora  || "—";
+        const turnoNocturno = entrada && salida && entrada.fecha !== salida.fecha;
+
+        // Calcular minutos con timestamps reales (correcto para turnos nocturnos)
+        let totalMins = 0;
+        if (entrada && salida) {
+          const tsE = entrada.timestamp?.toDate?.();
+          const tsS = salida.timestamp?.toDate?.();
+          if (tsE && tsS) totalMins = Math.round((tsS - tsE) / 60000);
+        }
+
+        // Aplicar incidencia de olvido de salida si no hay salida real
+        if (!salida) {
+          const incSalida = incsDia.find(i => i.tipo === "Olvido de fichaje de salida" && i.estado === "aprobada" && i.horaCorrecta);
+          if (incSalida && entrada) {
+            const minsS = horaAMins(incSalida.horaCorrecta);
+            const minsE = horaAMins(entradaHora);
+            if (minsS !== null && minsE !== null) {
+              totalMins = minsS >= minsE ? minsS - minsE : (1440 - minsE) + minsS;
+            }
+          }
+        }
+
+        const ausencia = ausenciaDeDia(toISO(fecha));
+        return { fecha, entrada: entradaHora, salida: salidaHora, totalMins, incsDia, ausencia, turnoNocturno };
+      })
+      .sort((a,b) => b.fecha.localeCompare(a.fecha));
   })();
 
   const totalMes = dias.reduce((acc,d)=>acc+(d.totalMins||0),0);
@@ -113,7 +146,7 @@ export default function MiHistorial() {
            <td style="padding:7px 12px;border-bottom:1px solid #F3F4F6;color:#C0392B;font-weight:500">${d.salida}</td>
            <td style="padding:7px 12px;border-bottom:1px solid #F3F4F6;font-weight:600">${minsATexto(d.totalMins) || "—"}</td>`;
       return `<tr style="background:${bg}">
-        <td style="padding:7px 12px;border-bottom:1px solid #F3F4F6">${d.fecha}</td>
+        <td style="padding:7px 12px;border-bottom:1px solid #F3F4F6">${d.fecha}${d.turnoNocturno ? ' 🌙' : ''}</td>
         ${celdaCentral}
         <td style="padding:7px 12px;border-bottom:1px solid #F3F4F6;font-size:12px;color:#BA7517">
           ${d.incsDia.length > 0 ? d.incsDia.map(i => i.tipo).join(", ") : "—"}
@@ -252,7 +285,7 @@ export default function MiHistorial() {
                 )}
                 {dias.map((d,i)=>(
                   <tr key={i} style={ d.ausencia ? { background: d.ausencia.tipo==="vacaciones" ? "#F0FDF4" : "#FFF7ED" } : {} }>
-                    <td>{d.fecha}</td>
+                    <td>{d.fecha}{d.turnoNocturno && <span style={{marginLeft:6,fontSize:11,color:"#6B7280"}}>🌙</span>}</td>
                     {d.ausencia ? (
                       <td colSpan={3} style={{ fontWeight:600, fontSize:13, textAlign:"center",
                         color: d.ausencia.tipo==="vacaciones" ? "#0F6E56" : "#BA7517"
