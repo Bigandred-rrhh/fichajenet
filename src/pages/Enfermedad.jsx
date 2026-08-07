@@ -110,6 +110,7 @@ export default function Enfermedad() {
           titulo: "Nueva ausencia por enfermedad 🏥",
           mensaje: `${perfil.nombre} ha reportado una ausencia: ${form.tipo} desde el ${form.fechaInicio}${form.fechaFin ? " hasta el " + form.fechaFin : ""}.`,
           tipo: "warning",
+          empresaId: perfil.empresaId,
         });
       }
       setModal(false); cargar();
