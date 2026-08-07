@@ -1,12 +1,12 @@
 // src/lib/notificarAdmins.js
-// Notifica a todos los admins/rrhh de la app
-// Usa una coleccion especial "config" que cualquier usuario autenticado puede leer
-
+// Notifica a admins globales y al RRHH de la empresa indicada
 import { collection, getDocs, getDoc, doc, query, where } from "firebase/firestore";
 import { db } from "./firebase";
 import { crearNotificacion } from "./notificaciones";
 
-export async function notificarAdmins({ titulo, mensaje, tipo = "warning" }) {
+// empresaId: si se indica, los RRHH solo reciben notificación si son de esa empresa.
+//            Los admin (rol=="admin") reciben siempre independientemente de empresa.
+export async function notificarAdmins({ titulo, mensaje, tipo = "warning", empresaId = null }) {
   // --- Intento 1: leer usuarios con rol admin/rrhh directamente ---
   try {
     const q = query(
@@ -16,48 +16,50 @@ export async function notificarAdmins({ titulo, mensaje, tipo = "warning" }) {
     const snap = await getDocs(q);
 
     if (snap.empty) {
-      // ✅ Aviso explícito: la query funcionó pero no hay admins en la colección
       console.warn("notificarAdmins: la query funcionó pero no hay usuarios con rol admin/rrhh");
     } else {
+      const destinatarios = snap.docs.filter(d => {
+        const data = d.data();
+        if (data.rol === "admin") return true; // admin siempre recibe
+        if (data.rol === "rrhh") {
+          // RRHH solo recibe si no se especifica empresa o si es de esa empresa
+          return !empresaId || data.empresaId === empresaId;
+        }
+        return false;
+      });
+
       await Promise.all(
-        snap.docs.map(d =>
+        destinatarios.map(d =>
           crearNotificacion({ usuarioId: d.id, titulo, mensaje, tipo })
         )
       );
-      console.log(`notificarAdmins: notificados ${snap.docs.length} admin(s)/rrhh correctamente`);
-      return; // ✅ Éxito — no seguimos al fallback
+      console.log(`notificarAdmins: notificados ${destinatarios.length} usuario(s) correctamente`);
+      return;
     }
-
   } catch (e) {
-    // ✅ Error visible: normalmente falta de permisos en Firestore Rules
     console.error("notificarAdmins — no se pudo leer la colección 'usuarios':", e.message);
     console.warn("notificarAdmins — intentando fallback con config/admins...");
   }
 
-  // --- Intento 2 (fallback): leer IDs de admins desde config/admins ---
+  // --- Intento 2 (fallback): leer IDs desde config/admins (solo admins globales) ---
   try {
     const configSnap = await getDoc(doc(db, "config", "admins"));
-
     if (!configSnap.exists()) {
-      console.error("notificarAdmins — el documento 'config/admins' no existe. Crea el documento con el campo 'ids: [uid1, uid2, ...]'");
+      console.error("notificarAdmins — el documento 'config/admins' no existe.");
       return;
     }
-
     const adminIds = configSnap.data().ids || [];
-
     if (adminIds.length === 0) {
       console.warn("notificarAdmins — 'config/admins' existe pero el array 'ids' está vacío");
       return;
     }
-
     await Promise.all(
       adminIds.map(id =>
         crearNotificacion({ usuarioId: id, titulo, mensaje, tipo })
       )
     );
     console.log(`notificarAdmins (fallback): notificados ${adminIds.length} admin(s) desde config/admins`);
-
   } catch (e2) {
-    console.error("notificarAdmins — fallo total, no se pudo notificar a ningún admin:", e2.message);
+    console.error("notificarAdmins — fallo total:", e2.message);
   }
 }
