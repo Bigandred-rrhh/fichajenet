@@ -204,6 +204,7 @@ export default function Vacaciones() {
           titulo: "Nueva solicitud de vacaciones",
           mensaje: `${perfil.nombre} ha solicitado vacaciones del ${form.fechaInicio} al ${form.fechaFin} (${dias} dias).`,
           tipo: "warning",
+          empresaId: perfil.empresaId,
         });
       }
       setModal(false); cargar();
