@@ -45,6 +45,7 @@ export default function Fichajes() {
   const [empresas,     setEmpresas]     = useState([]);
   const [filtroEmp,   setFiltroEmp]   = useState("");
   const [mes,         setMes]         = useState(format(new Date(),"yyyy-MM"));
+  const [filtroDia,   setFiltroDia]   = useState("");
   const [cargando,    setCargando]    = useState(false);
 
   useEffect(() => { cargarEmpresas(); }, [perfil]);
@@ -206,7 +207,9 @@ export default function Fichajes() {
       });
     });
 
-    return filas.sort((a,b) => toISO(b.fecha).localeCompare(toISO(a.fecha)));
+    return filas
+      .filter(r => !filtroDia || toISO(r.fecha) === filtroDia)
+      .sort((a,b) => (a.nombre||"").localeCompare(b.nombre||"", "es"));
   };
 
   const exportarExcel = () => {
@@ -243,21 +246,30 @@ export default function Fichajes() {
           <div>
             <label className="form-label" style={{ marginBottom:4 }}>{t("fichajes_mes")}</label>
             <input className="form-input" type="month" value={mes}
-              onChange={e=>setMes(e.target.value)} style={{ width:170 }} />
+              onChange={e=>{ setMes(e.target.value); setFiltroDia(""); }} style={{ width:170 }} />
           </div>
-          {!esRRHH && (
           <div>
-            <label className="form-label" style={{ marginBottom:4 }}>{t("fichajes_empresa")}</label>
-            <select className="form-input form-select" style={{ width:220 }}
-              value={filtroEmp} onChange={e=>setFiltroEmp(e.target.value)}>
-              <option value="">{t("fichajes_todas_emp")}</option>
-              {empresas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-            </select>
+            <label className="form-label" style={{ marginBottom:4 }}>Día</label>
+            <input className="form-input" type="date" value={filtroDia}
+              onChange={e=>setFiltroDia(e.target.value)} style={{ width:160 }}
+              min={`${mes}-01`} max={`${mes}-31`} />
           </div>
+          {filtroDia && (
+            <div style={{ marginTop:18 }}>
+              <button className="btn" style={{ fontSize:12, padding:"6px 10px" }}
+                onClick={()=>setFiltroDia("")}>✕ Limpiar día</button>
+            </div>
           )}
-          <div style={{ marginTop:18 }}>
-            <span className="badge badge-blue">{resumen.length} {t("fichajes_dias")}</span>
-          </div>
+          {!esRRHH && (
+            <div>
+              <label className="form-label" style={{ marginBottom:4 }}>{t("fichajes_empresa")}</label>
+              <select className="form-input form-select" style={{ width:220 }}
+                value={filtroEmp} onChange={e=>setFiltroEmp(e.target.value)}>
+                <option value="">{t("fichajes_todas_emp")}</option>
+                {empresas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
