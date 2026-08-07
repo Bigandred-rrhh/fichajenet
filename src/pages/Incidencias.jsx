@@ -111,6 +111,7 @@ export default function Incidencias() {
           titulo: "Nueva incidencia registrada ⚠️",
           mensaje: `${perfil.nombre} ha registrado una incidencia: ${form.tipo} (${form.fecha}).`,
           tipo: "warning",
+          empresaId: perfil.empresaId,
         });
       }
       setModal(false); cargar();
