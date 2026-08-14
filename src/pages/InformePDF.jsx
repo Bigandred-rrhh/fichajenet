@@ -459,9 +459,31 @@ export default function InformePDF() {
     <div>
       <style>{`
         @media print {
-          .no-print { display:none!important; }
-          body { background:#fff; }
-          .print-area { box-shadow:none!important; border:none!important; margin-bottom:0!important; }
+          /* Ocultar toda la UI de la app */
+          .no-print,
+          .sidebar,
+          .mobile-nav,
+          .desktop-topbar,
+          nav,
+          header { display:none!important; }
+
+          /* Quitar márgenes del layout */
+          .main-wrapper { margin-left:0!important; width:100%!important; }
+          .main-content { padding:0!important; }
+          .app-shell { display:block!important; }
+
+          /* Fondo blanco, sin sombras */
+          body { background:#fff!important; margin:0; padding:0; }
+          .print-area {
+            box-shadow:none!important;
+            border:none!important;
+            margin-bottom:0!important;
+            page-break-after: always;
+          }
+          .print-area:last-child { page-break-after: auto; }
+
+          /* Forzar colores en impresión */
+          * { -webkit-print-color-adjust:exact!important; print-color-adjust:exact!important; }
         }
         .print-area { margin-bottom: 32px; }
       `}</style>
