@@ -85,8 +85,9 @@ export default function InformeVacaciones() {
   const hayInforme = !!datos;
   const totalDias = datos?.vacaciones?.reduce((acc, v) => acc + (v.dias || 0), 0) || 0;
   const totalLab  = datos?.vacaciones?.reduce((acc, v) => acc + diasLaborables(v.fechaInicio, v.fechaFin), 0) || 0;
-  const aprobadas = datos?.vacaciones?.filter(v => v.estado === "aprobada").reduce((acc, v) => acc + (v.dias || 0), 0) || 0;
-  const pendientes = datos?.vacaciones?.filter(v => v.estado === "pendiente").reduce((acc, v) => acc + (v.dias || 0), 0) || 0;
+  const aprobadas = datos?.vacaciones?.filter(v => v.estado === "aprobada").reduce((acc, v) => acc + diasLaborables(v.fechaInicio, v.fechaFin), 0) || 0;
+  const DIAS_DERECHO = 22;
+  const restantes = Math.max(0, DIAS_DERECHO - totalLab);
 
   return (
     <div>
@@ -203,7 +204,7 @@ export default function InformeVacaciones() {
               { label:"Total días naturales", value: totalDias, color:"#1B3A6B", bg:"#EBF2FB" },
               { label:"Días laborables",      value: totalLab,  color:"#1B3A6B", bg:"#EBF2FB" },
               { label:"Aprobados",            value: aprobadas, color:"#0F6E56", bg:"#E1F5EE" },
-              { label:"Pendientes",           value: pendientes,color:"#BA7517", bg:"#FFF3CD" },
+              { label:"Dias restantes", value: restantes, color: restantes <= 5 ? "#C0392B" : restantes <= 10 ? "#BA7517" : "#0F6E56", bg: restantes <= 5 ? "#FDECEA" : restantes <= 10 ? "#FFF3CD" : "#E1F5EE" },
             ].map(s => (
               <div key={s.label} style={{ background:s.bg, borderRadius:8, padding:"12px 14px", textAlign:"center" }}>
                 <div style={{ fontSize:22, fontWeight:700, color:s.color }}>{s.value}</div>
