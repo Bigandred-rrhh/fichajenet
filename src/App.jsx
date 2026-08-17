@@ -13,6 +13,7 @@ import Incidencias     from "./pages/Incidencias";
 import MiHistorial     from "./pages/MiHistorial";
 import CambiarPassword from "./pages/CambiarPassword";
 import InformePDF      from "./pages/InformePDF";
+import InformeVacaciones from "./pages/InformeVacaciones";
 import Vacaciones      from "./pages/Vacaciones";
 import Enfermedad      from "./pages/Enfermedad";
 import Nominas         from "./pages/Nominas";
@@ -90,6 +91,11 @@ function Layout({ children, rol }) {
             <NavLink to="/informe-pdf" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
               <span className="nav-icon">📄</span> {t("nav_informe_pdf")}
             </NavLink>
+            {esSuperAdmin && (
+              <NavLink to="/informe-vacaciones" className={({isActive})=>"nav-link"+(isActive?" active":"")}>
+                <span className="nav-icon">🏖️📄</span> Informe vacaciones
+              </NavLink>
+            )}
             <div className="nav-section-label">{t("nav_rrhh")}</div>
             <NavLink to="/vacaciones"  className={({isActive})=>"nav-link"+(isActive?" active":"")}>
               <span className="nav-icon">🏖️</span> {t("nav_vacaciones")}
@@ -227,7 +233,8 @@ export default function App() {
       <Route path="/empleados"        element={<RutaProtegida soloAdmin><Empleados /></RutaProtegida>} />
       <Route path="/fichajes"         element={<RutaProtegida soloAdmin><Fichajes /></RutaProtegida>} />
       <Route path="/incidencias"      element={<RutaProtegida><Incidencias /></RutaProtegida>} />
-      <Route path="/informe-pdf"      element={<RutaProtegida soloAdmin><InformePDF /></RutaProtegida>} />
+      <Route path="/informe-pdf"         element={<RutaProtegida soloAdmin><InformePDF /></RutaProtegida>} />
+      <Route path="/informe-vacaciones"  element={<RutaProtegida soloSuperAdmin><InformeVacaciones /></RutaProtegida>} />
       <Route path="/mi-historial"     element={<RutaProtegida><MiHistorial /></RutaProtegida>} />
       <Route path="/cambiar-password" element={<RutaProtegida><CambiarPassword /></RutaProtegida>} />
       <Route path="/vacaciones"       element={<RutaProtegida><Vacaciones /></RutaProtegida>} />
