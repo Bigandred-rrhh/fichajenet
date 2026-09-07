@@ -9,7 +9,7 @@ import { crearNotificacion } from "../lib/notificaciones";
 import { notificarAdmins } from "../lib/notificarAdmins";
 import { format } from "date-fns";
 
-const TIPOS = ["Baja médica","Cita médica","Enfermedad sin baja","Accidente laboral","Otro"];
+const TIPOS = ["Baja médica","Cita médica","Enfermedad sin baja","Accidente laboral","Baja Maternidad/Paternidad","Otro"];
 const VACIA = { empleadoId:"", empleadoNombre:"", empresaId:"", empresaNombre:"",
   fechaInicio:"", fechaFin:"", tipo:"Baja médica", descripcion:"", estado:"reportada" };
 
