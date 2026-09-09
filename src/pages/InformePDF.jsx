@@ -49,9 +49,23 @@ async function procesarEmpleado(empId, desde, hasta) {
   ]);
 
   const fichajes     = fSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const incs         = iSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const vacaciones   = vSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const enfermedades = eSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const desdeISO = desde.toISOString().slice(0, 10);
+  const hastaISO = hasta.toISOString().slice(0, 10);
+
+  // Filtrar incidencias del mes (por fecha de la incidencia)
+  const incs = iSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    .filter(i => {
+      const f = toISO(i.fecha || "");
+      return f >= desdeISO && f <= hastaISO;
+    });
+
+  // Filtrar vacaciones que se solapan con el mes
+  const vacaciones = vSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    .filter(v => v.fechaInicio <= hastaISO && (v.fechaFin || v.fechaInicio) >= desdeISO);
+
+  // Filtrar enfermedades que se solapan con el mes
+  const enfermedades = eSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    .filter(e => e.fechaInicio <= hastaISO && (e.fechaFin || hastaISO) >= desdeISO);
 
   const ausenciaDeDia = (fechaISO) => {
     const vac = vacaciones.find(v => fechaISO >= v.fechaInicio && fechaISO <= v.fechaFin);
