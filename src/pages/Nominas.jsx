@@ -6,6 +6,7 @@ import { useAuth } from "../lib/AuthContext";
 import { useToast } from "../hooks/useToast";
 import { useLang } from "../lib/LanguageContext";
 import { crearNotificacion } from "../lib/notificaciones";
+import { notificarAdmins } from "../lib/notificarAdmins";
 
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const VACIA = { empleadoId:"", empleadoNombre:"", empresaId:"", empresaNombre:"", mes:"", anyo:new Date().getFullYear(), descripcion:"", linkDrive:"" };
@@ -14,8 +15,7 @@ export default function Nominas() {
   const { user, perfil } = useAuth();
   const { showToast, ToastUI } = useToast();
   const { t } = useLang();
-  const esAdmin = perfil?.rol==="admin"; // Solo admin gestiona nóminas
-  const esVistaAdmin = perfil?.rol==="admin"; // RRHH y empleado ven solo las suyas
+  const esAdmin = perfil?.rol==="admin";
 
   const [nominas,       setNominas]       = useState([]);
   const [empleados,     setEmpleados]     = useState([]);
@@ -31,7 +31,6 @@ export default function Nominas() {
   const cargar = async () => {
     if (!perfil) return;
     try {
-      // Solo admin ve todas las nóminas; RRHH y empleado ven solo las suyas
       const q = esAdmin
         ? query(collection(db,"nominas"), orderBy("creadaEn","desc"))
         : query(collection(db,"nominas"), where("empleadoId","==",user.uid));
@@ -73,19 +72,34 @@ export default function Nominas() {
         linkDrive:form.linkDrive, creadaEn:Timestamp.now(), creadaPor:perfil.nombre,
       });
       await crearNotificacion({
-        usuarioId:form.empleadoId, titulo:"Nueva nómina disponible 📄",
-        mensaje:`Tu nómina de ${form.mes} ${form.anyo} ya está disponible en la sección Nóminas.`, tipo:"info",
+        usuarioId:form.empleadoId, titulo:"Nueva nomina disponible",
+        mensaje:`Tu nomina de ${form.mes} ${form.anyo} ya esta disponible en la seccion Nominas.`, tipo:"info",
       });
-      showToast("Nómina añadida y empleado notificado","success");
+      showToast("Nomina añadida y empleado notificado","success");
       setModal(false); setForm(VACIA); cargar();
     } catch(e) { showToast("Error: "+e.message,"error"); }
     setGuardando(false);
   };
 
+  // ✅ Notificar al admin cuando el empleado descarga su nómina
+  const handleDescargarNomina = async (n) => {
+    try {
+      await notificarAdmins({
+        titulo: "Nomina descargada",
+        mensaje: `${perfil.nombre} ha descargado su nomina de ${n.mes} ${n.anyo} (${n.empresaNombre}).`,
+        tipo: "info",
+        empresaId: perfil.empresaId,
+      });
+    } catch(e) {
+      console.error("Error notificando descarga de nomina:", e);
+    }
+    window.open(n.linkDrive, "_blank");
+  };
+
   const eliminar = async (id) => {
-    if (!window.confirm("¿Eliminar esta nómina?")) return;
+    if (!window.confirm("Eliminar esta nomina?")) return;
     await deleteDoc(doc(db,"nominas",id));
-    showToast("Nómina eliminada","success"); cargar();
+    showToast("Nomina eliminada","success"); cargar();
   };
 
   let lista = nominas;
@@ -140,17 +154,18 @@ export default function Nominas() {
               <div style={{ fontWeight:600, fontSize:16, color:"#1B3A6B", marginBottom:10 }}>{anyo}</div>
               <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:10 }}>
                 {porAnyo[anyo].map(n=>(
-                  <a key={n.id} href={n.linkDrive} target="_blank" rel="noopener noreferrer" style={{ textDecoration:"none" }}>
-                    <div style={{ background:"#fff", border:"1px solid #E5E7EB", borderRadius:10, padding:16, textAlign:"center", cursor:"pointer", transition:"box-shadow .15s" }}
-                      onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 12px rgba(0,0,0,.1)"}
-                      onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
-                      <div style={{ fontSize:32, marginBottom:8 }}>📄</div>
-                      <div style={{ fontWeight:600, color:"#1B3A6B" }}>{n.mes}</div>
-                      <div style={{ fontSize:12, color:"#6B7280", marginTop:2 }}>{n.empresaNombre}</div>
-                      {n.descripcion&&<div style={{ fontSize:11, color:"#9CA3AF", marginTop:2 }}>{n.descripcion}</div>}
-                      <div style={{ background:"#EBF2FB", borderRadius:6, padding:"4px 8px", fontSize:12, color:"#2E5FA3", marginTop:8 }}>{t("nom_descargar")}</div>
-                    </div>
-                  </a>
+                  // ✅ onClick en lugar de <a> para poder notificar antes de abrir
+                  <div key={n.id} onClick={()=>handleDescargarNomina(n)}
+                    style={{ background:"#fff", border:"1px solid #E5E7EB", borderRadius:10, padding:16,
+                      textAlign:"center", cursor:"pointer", transition:"box-shadow .15s" }}
+                    onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 12px rgba(0,0,0,.1)"}
+                    onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
+                    <div style={{ fontSize:32, marginBottom:8 }}>📄</div>
+                    <div style={{ fontWeight:600, color:"#1B3A6B" }}>{n.mes}</div>
+                    <div style={{ fontSize:12, color:"#6B7280", marginTop:2 }}>{n.empresaNombre}</div>
+                    {n.descripcion&&<div style={{ fontSize:11, color:"#9CA3AF", marginTop:2 }}>{n.descripcion}</div>}
+                    <div style={{ background:"#EBF2FB", borderRadius:6, padding:"4px 8px", fontSize:12, color:"#2E5FA3", marginTop:8 }}>{t("nom_descargar")}</div>
+                  </div>
                 ))}
               </div>
             </div>
