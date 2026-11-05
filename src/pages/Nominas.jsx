@@ -82,6 +82,12 @@ export default function Nominas() {
   };
 
   // ✅ Notificar al admin cuando el empleado descarga su nómina
+  // Asegura que el enlace tenga protocolo y sin espacios (si no, iOS lo trata como ruta interna)
+  const normalizarLink = (l) => {
+    const s = (l || "").trim();
+    return /^https?:\/\//i.test(s) ? s : "https://" + s.replace(/^\/+/, "");
+  };
+
   // El enlace se abre de forma nativa (<a>); la notificación va en segundo plano
   const handleDescargarNomina = (n) => {
     try {
@@ -154,7 +160,7 @@ export default function Nominas() {
               <div style={{ fontWeight:600, fontSize:16, color:"#1B3A6B", marginBottom:10 }}>{anyo}</div>
               <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:10 }}>
                 {porAnyo[anyo].map(n=>(
-                  <a key={n.id} href={n.linkDrive} target="_blank" rel="noopener noreferrer"
+                  <a key={n.id} href={normalizarLink(n.linkDrive)} target="_blank" rel="noopener noreferrer"
                     onClick={()=>handleDescargarNomina(n)}
                     style={{ display:"block", textDecoration:"none", background:"#fff", border:"1px solid #E5E7EB", borderRadius:10, padding:16,
                       textAlign:"center", cursor:"pointer", transition:"box-shadow .15s" }}
