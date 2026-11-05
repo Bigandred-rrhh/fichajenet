@@ -89,7 +89,17 @@ export default function Nominas() {
   };
 
   // El enlace se abre de forma nativa (<a>); la notificación va en segundo plano
-  const handleDescargarNomina = (n) => {
+  const handleDescargarNomina = (n, ev) => {
+    // En modo app (pantalla de inicio de iOS) los <a target="_blank"> externos pueden no abrirse:
+    // se abre de forma síncrona dentro del toque; si se bloquea, se navega en la misma ventana.
+    const standalone = window.navigator.standalone === true ||
+      (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+    if (standalone && ev) {
+      ev.preventDefault();
+      const url = normalizarLink(n.linkDrive);
+      const w = window.open(url, "_blank");
+      if (!w) window.location.href = url;
+    }
     try {
       Promise.resolve(notificarAdmins({
         titulo: "Nomina descargada",
@@ -161,7 +171,7 @@ export default function Nominas() {
               <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:10 }}>
                 {porAnyo[anyo].map(n=>(
                   <a key={n.id} href={normalizarLink(n.linkDrive)} target="_blank" rel="noopener noreferrer"
-                    onClick={()=>handleDescargarNomina(n)}
+                    onClick={(ev)=>handleDescargarNomina(n, ev)}
                     style={{ display:"block", textDecoration:"none", background:"#fff", border:"1px solid #E5E7EB", borderRadius:10, padding:16,
                       textAlign:"center", cursor:"pointer", transition:"box-shadow .15s" }}
                     onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 12px rgba(0,0,0,.1)"}
