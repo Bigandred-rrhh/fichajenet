@@ -97,8 +97,8 @@ export default function Nominas() {
     if (standalone && ev) {
       ev.preventDefault();
       const url = normalizarLink(n.linkDrive);
-      const w = window.open(url, "_blank");
-      if (!w) window.location.href = url;
+      // Pequeño margen para que salga la notificación antes de abandonar la app
+      setTimeout(() => { window.location.href = url; }, 150);
     }
     try {
       Promise.resolve(notificarAdmins({
