@@ -82,18 +82,18 @@ export default function Nominas() {
   };
 
   // ✅ Notificar al admin cuando el empleado descarga su nómina
-  const handleDescargarNomina = async (n) => {
+  // El enlace se abre de forma nativa (<a>); la notificación va en segundo plano
+  const handleDescargarNomina = (n) => {
     try {
-      await notificarAdmins({
+      Promise.resolve(notificarAdmins({
         titulo: "Nomina descargada",
         mensaje: `${perfil.nombre} ha descargado su nomina de ${n.mes} ${n.anyo} (${n.empresaNombre}).`,
         tipo: "info",
         empresaId: perfil.empresaId,
-      });
+      })).catch(e => console.error("Error notificando descarga de nomina:", e));
     } catch(e) {
       console.error("Error notificando descarga de nomina:", e);
     }
-    window.open(n.linkDrive, "_blank");
   };
 
   const eliminar = async (id) => {
@@ -154,9 +154,9 @@ export default function Nominas() {
               <div style={{ fontWeight:600, fontSize:16, color:"#1B3A6B", marginBottom:10 }}>{anyo}</div>
               <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:10 }}>
                 {porAnyo[anyo].map(n=>(
-                  // ✅ onClick en lugar de <a> para poder notificar antes de abrir
-                  <div key={n.id} onClick={()=>handleDescargarNomina(n)}
-                    style={{ background:"#fff", border:"1px solid #E5E7EB", borderRadius:10, padding:16,
+                  <a key={n.id} href={n.linkDrive} target="_blank" rel="noopener noreferrer"
+                    onClick={()=>handleDescargarNomina(n)}
+                    style={{ display:"block", textDecoration:"none", background:"#fff", border:"1px solid #E5E7EB", borderRadius:10, padding:16,
                       textAlign:"center", cursor:"pointer", transition:"box-shadow .15s" }}
                     onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 12px rgba(0,0,0,.1)"}
                     onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
@@ -165,7 +165,7 @@ export default function Nominas() {
                     <div style={{ fontSize:12, color:"#6B7280", marginTop:2 }}>{n.empresaNombre}</div>
                     {n.descripcion&&<div style={{ fontSize:11, color:"#9CA3AF", marginTop:2 }}>{n.descripcion}</div>}
                     <div style={{ background:"#EBF2FB", borderRadius:6, padding:"4px 8px", fontSize:12, color:"#2E5FA3", marginTop:8 }}>{t("nom_descargar")}</div>
-                  </div>
+                  </a>
                 ))}
               </div>
             </div>
